@@ -1,4 +1,4 @@
-# CampusGate-Secure-Admission-Tracker
+# CampusGate: Secure Admission Tracker
 
 ## 📌 Overview
 
