@@ -3,6 +3,7 @@ import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { GraduationCap, Mail, Lock, User } from 'lucide-react';
+import { signUpStudent } from '../services/authService';
 
 interface StudentRegistrationScreenProps {
   onBack: () => void;
@@ -15,10 +16,19 @@ export function StudentRegistrationScreen({ onBack, onLoginClick, onSignUp }: St
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleSignUp = () => {
-    console.log('Student registration attempted with:', { fullName, email, password });
+  // const handleSignUp = () => {
+  //   console.log('Student registration attempted with:', { fullName, email, password });
+  //   onSignUp();
+  // };
+  const handleSignUp = async () => {
+  try {
+    await signUpStudent(fullName, email, password);
+    alert('Student account created successfully');
     onSignUp();
-  };
+  } catch (error: any) {
+    alert(error.message);
+  }
+};
 
   return (
     <>

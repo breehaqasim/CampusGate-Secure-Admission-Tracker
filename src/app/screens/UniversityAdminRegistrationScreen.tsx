@@ -3,6 +3,7 @@ import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { Building2, Mail, Lock, User, School } from 'lucide-react';
+import { requestUniversityAdmin } from '../services/authService';
 
 interface UniversityAdminRegistrationScreenProps {
   onBack: () => void;
@@ -15,9 +16,18 @@ export function UniversityAdminRegistrationScreen({ onBack, onLoginClick }: Univ
   const [password, setPassword] = useState('');
   const [universityName, setUniversityName] = useState('');
 
-  const handleSubmitRequest = () => {
-    console.log('Admin registration request submitted:', { fullName, email, password, universityName });
-  };
+  // const handleSubmitRequest = () => {
+  //   console.log('Admin registration request submitted:', { fullName, email, password, universityName });
+  // };
+  const handleSubmitRequest = async () => {
+  try {
+    await requestUniversityAdmin(fullName, email, password, universityName);
+    alert('Request submitted. Wait for Super Admin approval.');
+    onLoginClick();
+  } catch (error: any) {
+    alert(error.message);
+  }
+};
 
   return (
     <>

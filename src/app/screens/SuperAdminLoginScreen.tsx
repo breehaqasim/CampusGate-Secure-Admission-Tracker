@@ -3,6 +3,7 @@ import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { Shield, Mail, Lock } from 'lucide-react';
+import { loginUser } from '../services/authService';
 
 interface SuperAdminLoginScreenProps {
   onBack: () => void;
@@ -13,10 +14,24 @@ export function SuperAdminLoginScreen({ onBack, onLogin }: SuperAdminLoginScreen
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleLogin = () => {
-    console.log('Super Admin login attempted with:', { email, password });
+  // const handleLogin = () => {
+  //   console.log('Super Admin login attempted with:', { email, password });
+  //   onLogin();
+  // };
+  const handleLogin = async () => {
+  try {
+    const profile = await loginUser(email, password);
+
+    if (profile.role !== 'super-admin') {
+      alert('Access denied. This login is only for super admin.');
+      return;
+    }
+
     onLogin();
-  };
+  } catch (error: any) {
+    alert(error.message);
+  }
+};
 
   return (
     <>

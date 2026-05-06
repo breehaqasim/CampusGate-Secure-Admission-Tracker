@@ -1,30 +1,66 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navbar } from '../components/Navbar';
 import { Card } from '../components/Card';
 import { StatCard } from '../components/StatCard';
 import { Button } from '../components/Button';
 import { Users, Building2, Clock, CheckCircle, XCircle } from 'lucide-react';
-
+import {
+  getPendingAdminRequests,
+  approveAdmin,
+  rejectAdmin,
+} from '../services/adminService';
+import { supabase } from "../../lib/supabase";
 interface SuperAdminDashboardScreenProps {
   onLogout: () => void;
 }
 
 export function SuperAdminDashboardScreen({ onLogout }: SuperAdminDashboardScreenProps) {
-  const [pendingRequests, setPendingRequests] = useState([
-    { id: '1', name: 'John Smith', email: 'john@stanford.edu', university: 'Stanford University', status: 'pending' },
-    { id: '2', name: 'Sarah Johnson', email: 'sarah@mit.edu', university: 'MIT', status: 'pending' },
-    { id: '3', name: 'Michael Brown', email: 'michael@harvard.edu', university: 'Harvard University', status: 'pending' },
-  ]);
+  // const [pendingRequests, setPendingRequests] = useState([
+  //   { id: '1', name: 'John Smith', email: 'john@stanford.edu', university: 'Stanford University', status: 'pending' },
+  //   { id: '2', name: 'Sarah Johnson', email: 'sarah@mit.edu', university: 'MIT', status: 'pending' },
+  //   { id: '3', name: 'Michael Brown', email: 'michael@harvard.edu', university: 'Harvard University', status: 'pending' },
+  // ]);
+  const [pendingRequests, setPendingRequests] = useState<any[]>([]);
+  useEffect(() => {
+  fetchRequests();
+}, []);
 
-  const handleApprove = (id: string) => {
-    console.log('Approved request:', id);
-    setPendingRequests(prev => prev.filter(req => req.id !== id));
-  };
+const fetchRequests = async () => {
+  try {
+    const data = await getPendingAdminRequests();
+    setPendingRequests(data || []);
+  } catch (error) {
+    console.error(error);
+  }
+};
 
-  const handleReject = (id: string) => {
-    console.log('Rejected request:', id);
-    setPendingRequests(prev => prev.filter(req => req.id !== id));
-  };
+  // const handleApprove = (id: string) => {
+  //   console.log('Approved request:', id);
+  //   setPendingRequests(prev => prev.filter(req => req.id !== id));
+  // };
+  const handleApprove = async (id: string) => {
+  try {
+    await approveAdmin(id);
+    alert('University admin approved');
+    fetchRequests();
+  } catch (error) {
+    console.error(error);
+  }
+};
+
+  // const handleReject = (id: string) => {
+  //   console.log('Rejected request:', id);
+  //   setPendingRequests(prev => prev.filter(req => req.id !== id));
+  // };
+  const handleReject = async (id: string) => {
+  try {
+    await rejectAdmin(id);
+    alert('University admin rejected');
+    fetchRequests();
+  } catch (error) {
+    console.error(error);
+  }
+};
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] dark">
