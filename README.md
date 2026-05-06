@@ -1,6 +1,6 @@
 # CampusGate: Secure Admission Tracker
 
-## 📌 Overview
+## Overview
 
 UniTrack Secure is a role-based web application designed to simplify the university admission exploration process while incorporating strong security practices. The system allows students to search and explore universities, university administrators to manage their institutional data, and a super administrator to control access through an approval workflow.
 
@@ -8,7 +8,7 @@ This project is built as part of a DevSecOps-focused application, integrating se
 
 ---
 
-## 🎯 Objectives
+## Objectives
 
 * Provide a centralized platform for university discovery
 * Implement Role-Based Access Control (RBAC)
@@ -18,27 +18,27 @@ This project is built as part of a DevSecOps-focused application, integrating se
 
 ---
 
-## 👥 User Roles
+## User Roles
 
-### 🟢 Student
+### Student
 
 * Register and login
 * Search universities by filters (country, city, etc.)
 * View university details
 
-### 🔵 University Admin
+### University Admin
 
 * Register and request access (pending approval)
 * Manage their own university data (Add/Edit)
 
-### 🔴 Super Admin
+### Super Admin
 
 * Approve or reject university admin requests
 * View and manage all users and universities
 
 ---
 
-## 🔁 System Workflow
+## System Workflow
 
 1. User selects role (Student / University Admin / Super Admin)
 2. Authentication (Login/Register)
@@ -48,7 +48,7 @@ This project is built as part of a DevSecOps-focused application, integrating se
 
 ---
 
-## 🗂️ Features
+## Features
 
 * 🔐 Secure authentication system (login/logout)
 * 👥 Role-Based Access Control (RBAC)
@@ -59,7 +59,7 @@ This project is built as part of a DevSecOps-focused application, integrating se
 
 ---
 
-## 🧱 Tech Stack
+## Tech Stack
 
 * **Frontend:** HTML, CSS
 * **Backend:** Flask (Python)
@@ -69,7 +69,7 @@ This project is built as part of a DevSecOps-focused application, integrating se
 
 ---
 
-## 🔐 Security Implementation
+## Security Implementation
 
 This project intentionally includes and tests common web vulnerabilities:
 
@@ -81,7 +81,7 @@ This project intentionally includes and tests common web vulnerabilities:
 
 ---
 
-## 🧪 Security Testing
+## Security Testing
 
 * **SAST:** Bandit (Python static analysis)
 * **SCA:** pip-audit / Safety (dependency scanning)
@@ -89,7 +89,7 @@ This project intentionally includes and tests common web vulnerabilities:
 
 ---
 
-## 🛠️ Exploitation & Remediation
+## Exploitation & Remediation
 
 Each identified vulnerability is:
 
@@ -100,7 +100,7 @@ Each identified vulnerability is:
 
 ---
 
-## 🚀 Setup & Installation
+## Setup & Installation
 
 ### Prerequisites
 
@@ -136,7 +136,7 @@ python app.py
 
 ---
 
-## 🐳 Docker (Optional)
+## Docker (Optional)
 
 ```bash
 docker-compose up --build
@@ -144,7 +144,7 @@ docker-compose up --build
 
 ---
 
-## 📊 Project Structure
+## Project Structure
 
 ```
 /app
@@ -161,7 +161,7 @@ docker-compose.yml
 
 ---
 
-## 📄 Reports & Documentation
+## Reports & Documentation
 
 * Architecture & Threat Model
 * Vulnerability Assessment Report
@@ -171,13 +171,13 @@ docker-compose.yml
 
 ---
 
-## 👥 Team
+## Team
 
 This project was developed as part of a collaborative academic effort.
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This project includes intentionally vulnerable components for educational purposes only. Do not deploy in production environments.
 
