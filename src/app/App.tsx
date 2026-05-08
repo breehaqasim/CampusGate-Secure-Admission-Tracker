@@ -73,14 +73,30 @@ export default function App() {
     }
   };
 
+  const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<T>((resolve) => {
+      timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+    });
+
+    const result = await Promise.race([promise, timeoutPromise]);
+    if (timeoutId) clearTimeout(timeoutId);
+    return result;
+  };
+
   useEffect(() => {
     let isMounted = true;
 
     const bootstrapSession = async () => {
       try {
-        const { data } = await supabase.auth.getSession();
+        const sessionResult = await withTimeout(
+          supabase.auth.getSession(),
+          4000,
+          { data: { session: null } } as any
+        );
         if (!isMounted) return;
-        await resolveSessionScreen(data.session?.user || null);
+        setIsSessionLoading(false);
+        resolveSessionScreen(sessionResult.data?.session?.user || null);
       } finally {
         if (isMounted) setIsSessionLoading(false);
       }
@@ -90,7 +106,7 @@ export default function App() {
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!isMounted) return;
-      await resolveSessionScreen(session?.user || null);
+      resolveSessionScreen(session?.user || null);
     });
 
     return () => {
