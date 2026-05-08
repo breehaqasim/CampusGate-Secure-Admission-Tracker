@@ -1,4 +1,25 @@
 import { supabase } from "../../lib/supabase";
+import { isValidEmail, normalizeEmail, validateStrongPassword } from './securityService';
+
+function isNetworkFetchError(error: any) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('failed to fetch') || message.includes('networkerror');
+}
+
+async function signUpWithRetry(payload: any) {
+  const firstAttempt = await supabase.auth.signUp(payload);
+  if (!firstAttempt.error) return firstAttempt;
+  if (!isNetworkFetchError(firstAttempt.error)) return firstAttempt;
+
+  // Retry once for transient network or upstream hiccups.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  return supabase.auth.signUp(payload);
+}
+
+function isMissingColumnError(error: any, columnName: string) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('column') && message.includes(columnName.toLowerCase());
+}
 
 function toReadableAuthError(error: any): Error {
   const rawMessage = error?.message || 'Authentication request failed';
@@ -10,6 +31,12 @@ function toReadableAuthError(error: any): Error {
 
   if (message.includes('password')) {
     return new Error('Password is too weak. Please use at least 6 characters.');
+  }
+
+  if (message.includes('failed to fetch') || message.includes('networkerror')) {
+    return new Error(
+      'Could not reach Supabase right now (network/API issue). Please check your internet, disable strict ad-block/privacy extensions for localhost, and try again.'
+    );
   }
 
   return new Error(rawMessage);
@@ -39,8 +66,16 @@ export async function signUpStudent(
   email: string,
   password: string
 ) {
-  const { data, error } = await supabase.auth.signUp({
-    email,
+  const normalizedEmail = normalizeEmail(email);
+  if (!isValidEmail(normalizedEmail)) {
+    throw new Error('Please enter a valid email address.');
+  }
+  const passwordIssue = validateStrongPassword(password);
+  if (passwordIssue) throw new Error(passwordIssue);
+
+  // Password hashing is handled server-side by Supabase Auth (bcrypt/secure provider implementation).
+  const { data, error } = await signUpWithRetry({
+    email: normalizedEmail,
     password,
     options: {
       data: {
@@ -57,7 +92,7 @@ export async function signUpStudent(
   const { error: profileError } = await supabase.from('profiles').upsert({
     id: data.user.id,
     full_name: fullName,
-    email,
+    email: normalizedEmail,
     role: 'student',
     approved: true,
   }, { onConflict: 'id' });
@@ -79,16 +114,27 @@ export async function requestUniversityAdmin(
   fullName: string,
   email: string,
   password: string,
-  universityName: string
+  universityName: string,
+  universityCity: string,
+  universityCountry: string
 ) {
-  const { data, error } = await supabase.auth.signUp({
-    email,
+  const normalizedEmail = normalizeEmail(email);
+  if (!isValidEmail(normalizedEmail)) {
+    throw new Error('Please enter a valid email address.');
+  }
+  const passwordIssue = validateStrongPassword(password);
+  if (passwordIssue) throw new Error(passwordIssue);
+
+  const { data, error } = await signUpWithRetry({
+    email: normalizedEmail,
     password,
     options: {
       data: {
         full_name: fullName,
         role: 'university-admin',
         university_name: universityName,
+        university_city: universityCity,
+        university_country: universityCountry,
         approved: false,
       },
     },
@@ -97,14 +143,33 @@ export async function requestUniversityAdmin(
   if (error) throw toReadableAuthError(error);
   if (!data.user) throw new Error('User was not created');
 
-  const { error: profileError } = await supabase.from('profiles').upsert({
+  const profilePayload: any = {
     id: data.user.id,
     full_name: fullName,
-    email,
+    email: normalizedEmail,
     role: 'university-admin',
     university_name: universityName,
+    university_city: universityCity,
+    university_country: universityCountry,
     approved: false,
-  }, { onConflict: 'id' });
+  };
+
+  let { error: profileError } = await supabase
+    .from('profiles')
+    .upsert(profilePayload, { onConflict: 'id' });
+
+  // Backward-compatible fallback when new location columns are not present yet.
+  if (
+    profileError &&
+    (isMissingColumnError(profileError, 'university_city') ||
+      isMissingColumnError(profileError, 'university_country'))
+  ) {
+    const { university_city, university_country, ...fallbackPayload } = profilePayload;
+    const fallback = await supabase
+      .from('profiles')
+      .upsert(fallbackPayload, { onConflict: 'id' });
+    profileError = fallback.error;
+  }
 
   if (profileError) {
     const profileMessage = String(profileError.message || '').toLowerCase();
@@ -118,8 +183,13 @@ export async function requestUniversityAdmin(
 }
 
 export async function loginUser(email: string, password: string) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!isValidEmail(normalizedEmail)) {
+    throw new Error('Please enter a valid email address.');
+  }
+
   const { data, error } = await supabase.auth.signInWithPassword({
-    email,
+    email: normalizedEmail,
     password,
   });
 
@@ -140,7 +210,7 @@ export async function loginUser(email: string, password: string) {
   const { error: createProfileError } = await supabase.from('profiles').upsert({
     id: data.user.id,
     full_name: metadata.full_name || '',
-    email: data.user.email || email,
+    email: data.user.email || normalizedEmail,
     role,
     university_name: metadata.university_name || null,
     approved: typeof metadata.approved === 'boolean' ? metadata.approved : role === 'student',
@@ -162,4 +232,64 @@ export async function loginUser(email: string, password: string) {
 export async function logoutUser() {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
+}
+
+export async function requestPasswordReset(email: string) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!isValidEmail(normalizedEmail)) {
+    throw new Error('Please enter a valid email address.');
+  }
+
+  const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+    redirectTo: `${window.location.origin}`,
+  });
+  if (error) throw toReadableAuthError(error);
+}
+
+export async function sendEmailOtpForPrivilegedLogin(email: string) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!isValidEmail(normalizedEmail)) {
+    throw new Error('Please enter a valid email address.');
+  }
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email: normalizedEmail,
+    options: {
+      shouldCreateUser: false,
+      emailRedirectTo: window.location.origin,
+    },
+  });
+  if (error) throw toReadableAuthError(error);
+}
+
+export async function verifyEmailOtpForPrivilegedLogin(
+  email: string,
+  otpToken: string,
+  expectedRole: 'university-admin' | 'super-admin'
+) {
+  const normalizedEmail = normalizeEmail(email);
+  const token = String(otpToken || '').trim();
+  if (!token) throw new Error('OTP is required.');
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: normalizedEmail,
+    token,
+    type: 'email',
+  });
+
+  if (error) throw toReadableAuthError(error);
+  const userId = data.user?.id;
+  if (!userId) throw new Error('OTP verification succeeded but no user session was created.');
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (profileError) throw toReadableProfileError(profileError);
+  if (profile?.role !== expectedRole) {
+    await supabase.auth.signOut();
+    throw new Error('OTP verified, but role authorization failed.');
+  }
 }

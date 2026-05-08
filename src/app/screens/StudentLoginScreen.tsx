@@ -3,7 +3,8 @@ import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { GraduationCap, Mail, Lock } from 'lucide-react';
-import { loginUser } from '../services/authService';
+import { loginUser, requestPasswordReset } from '../services/authService';
+import { checkRateLimit, isValidEmail, normalizeEmail } from '../services/securityService';
 
 interface StudentLoginScreenProps {
   onBack: () => void;
@@ -20,6 +21,16 @@ export function StudentLoginScreen({ onBack, onSignUpClick, onLogin }: StudentLo
   //   onLogin();
   // };
   const handleLogin = async () => {
+  if (!isValidEmail(email)) {
+    alert('Please enter a valid email address.');
+    return;
+  }
+  const loginLimit = checkRateLimit(`student-login:${normalizeEmail(email)}`, 10, 10 * 60 * 1000);
+  if (!loginLimit.allowed) {
+    alert('Too many login attempts. Please wait and try again.');
+    return;
+  }
+
   try {
     const profile = await loginUser(email, password);
 
@@ -33,6 +44,24 @@ export function StudentLoginScreen({ onBack, onSignUpClick, onLogin }: StudentLo
     alert(error.message);
   }
 };
+
+  const handleForgotPassword = async () => {
+    const targetEmail = email.trim() || prompt('Enter your email for reset link:') || '';
+    if (!targetEmail) return;
+
+    const resetLimit = checkRateLimit(`student-reset:${normalizeEmail(targetEmail)}`, 3, 15 * 60 * 1000);
+    if (!resetLimit.allowed) {
+      alert('Too many reset requests. Please try again later.');
+      return;
+    }
+
+    try {
+      await requestPasswordReset(targetEmail);
+      alert('Password reset email sent. Please check your inbox.');
+    } catch (error: any) {
+      alert(error.message || 'Failed to send password reset email.');
+    }
+  };
   return (
     <>
       <BackButton onClick={onBack} />
@@ -73,7 +102,7 @@ export function StudentLoginScreen({ onBack, onSignUpClick, onLogin }: StudentLo
                 />
                 <span>Remember me</span>
               </label>
-              <a href="#" className="text-[#31A6A8] hover:text-[#2a9395] transition-colors">
+              <a href="#" onClick={(e) => { e.preventDefault(); handleForgotPassword(); }} className="text-[#31A6A8] hover:text-[#2a9395] transition-colors">
                 Forgot password?
               </a>
             </div>

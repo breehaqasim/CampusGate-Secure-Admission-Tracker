@@ -28,6 +28,7 @@ type Screen =
   | 'super-admin-dashboard';
 
 export default function App() {
+  const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
   const [currentScreen, setCurrentScreen] = useState<Screen>('role-selection');
   const [selectedUniversityId, setSelectedUniversityId] = useState<string>('');
   const [favorites, setFavorites] = useState<any[]>([]);
@@ -114,6 +115,50 @@ export default function App() {
       authListener.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    let inactivityTimeout: ReturnType<typeof setTimeout> | null = null;
+    let isMounted = true;
+
+    const clearExistingTimeout = () => {
+      if (inactivityTimeout) {
+        clearTimeout(inactivityTimeout);
+      }
+    };
+
+    const scheduleTimeout = () => {
+      clearExistingTimeout();
+      inactivityTimeout = setTimeout(async () => {
+        if (!isMounted) return;
+        const { data } = await supabase.auth.getSession();
+        if (data.session) {
+          // Security-sensitive: enforce session expiration on client inactivity.
+          await supabase.auth.signOut();
+          setFavorites([]);
+          setSelectedUniversityId('');
+          setCurrentScreen('role-selection');
+          alert('You were logged out due to inactivity.');
+        }
+      }, INACTIVITY_TIMEOUT_MS);
+    };
+
+    const events: Array<keyof WindowEventMap> = [
+      'mousemove',
+      'keydown',
+      'click',
+      'scroll',
+      'touchstart',
+    ];
+
+    events.forEach((eventName) => window.addEventListener(eventName, scheduleTimeout));
+    scheduleTimeout();
+
+    return () => {
+      isMounted = false;
+      clearExistingTimeout();
+      events.forEach((eventName) => window.removeEventListener(eventName, scheduleTimeout));
+    };
+  }, [currentScreen]);
 
   const handleRoleSelect = (role: 'student' | 'university-admin' | 'super-admin') => {
     if (role === 'student') {
@@ -226,11 +271,6 @@ export default function App() {
         return (
           <UniversityAdminDashboardScreen
             onLogout={handleLogout}
-            onAddUniversity={() => setCurrentScreen('add-university')}
-            onEditUniversity={(id) => {
-              setSelectedUniversityId(id);
-              setCurrentScreen('edit-university');
-            }}
           />
         );
 

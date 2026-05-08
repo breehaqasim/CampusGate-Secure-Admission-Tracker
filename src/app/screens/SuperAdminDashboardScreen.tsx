@@ -154,8 +154,9 @@ const fetchRequests = async () => {
     await approveAdmin(id);
     alert('University admin approved');
     fetchDashboardData();
-  } catch (error) {
+  } catch (error: any) {
     console.error(error);
+    alert(error?.message || 'Failed to approve university admin');
   }
 };
 
@@ -168,8 +169,9 @@ const fetchRequests = async () => {
     await rejectAdmin(id);
     alert('University admin rejected');
     fetchDashboardData();
-  } catch (error) {
+  } catch (error: any) {
     console.error(error);
+    alert(error?.message || 'Failed to reject university admin');
   }
 };
 
@@ -217,13 +219,20 @@ const fetchRequests = async () => {
                   </thead>
                   <tbody>
                     {pendingRequests.map((request) => (
+                      (() => {
+                        const requesterName = request.full_name || request.name || 'N/A';
+                        const requesterEmail = request.email || 'N/A';
+                        const requesterUniversity =
+                          request.university_name || request.university || 'University not specified';
+
+                        return (
                       <tr
                         key={request.id}
                         className="border-b border-[#2a2a2a] hover:bg-[#2a2a2a]/30 transition-colors"
                       >
-                        <td className="px-4 py-4 text-white">{request.name}</td>
-                        <td className="px-4 py-4 text-white">{request.email}</td>
-                        <td className="px-4 py-4 text-white">{request.university}</td>
+                        <td className="px-4 py-4 text-white">{requesterName}</td>
+                        <td className="px-4 py-4 text-white">{requesterEmail}</td>
+                        <td className="px-4 py-4 text-white">{requesterUniversity}</td>
                         <td className="px-4 py-4">
                           <span className="px-3 py-1 bg-[#f59e0b]/10 text-[#f59e0b] rounded-lg text-sm">
                             Pending
@@ -251,6 +260,8 @@ const fetchRequests = async () => {
                           </div>
                         </td>
                       </tr>
+                        );
+                      })()
                     ))}
                   </tbody>
                 </table>

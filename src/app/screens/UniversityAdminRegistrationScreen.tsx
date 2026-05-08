@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
-import { Building2, Mail, Lock, User, School } from 'lucide-react';
+import { Building2, Mail, Lock, User, School, MapPin, Globe } from 'lucide-react';
 import { requestUniversityAdmin } from '../services/authService';
+import { checkRateLimit, isValidEmail, validateStrongPassword } from '../services/securityService';
 
 interface UniversityAdminRegistrationScreenProps {
   onBack: () => void;
@@ -15,13 +16,48 @@ export function UniversityAdminRegistrationScreen({ onBack, onLoginClick }: Univ
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [universityName, setUniversityName] = useState('');
+  const [universityCity, setUniversityCity] = useState('');
+  const [universityCountry, setUniversityCountry] = useState('');
 
   // const handleSubmitRequest = () => {
   //   console.log('Admin registration request submitted:', { fullName, email, password, universityName });
   // };
   const handleSubmitRequest = async () => {
+    if (
+      !fullName.trim() ||
+      !email.trim() ||
+      !password.trim() ||
+      !universityName.trim() ||
+      !universityCity.trim() ||
+      !universityCountry.trim()
+    ) {
+      alert('Please fill all fields before submitting your request.');
+      return;
+    }
+    if (!isValidEmail(email)) {
+      alert('Please enter a valid email address.');
+      return;
+    }
+    const passwordIssue = validateStrongPassword(password);
+    if (passwordIssue) {
+      alert(passwordIssue);
+      return;
+    }
+    const registrationLimit = checkRateLimit(`admin-register:${email.toLowerCase()}`, 5, 10 * 60 * 1000);
+    if (!registrationLimit.allowed) {
+      alert('Too many signup attempts. Please try again in a few minutes.');
+      return;
+    }
+
     try {
-      await requestUniversityAdmin(fullName, email, password, universityName);
+      await requestUniversityAdmin(
+        fullName,
+        email,
+        password,
+        universityName,
+        universityCity,
+        universityCountry
+      );
       alert('Request submitted. Wait for Super Admin approval.');
       onLoginClick();
     } catch (error: any) {
@@ -78,6 +114,25 @@ export function UniversityAdminRegistrationScreen({ onBack, onLoginClick }: Univ
               onChange={(e) => setUniversityName(e.target.value)}
               icon={<School size={18} />}
             />
+
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="City"
+                type="text"
+                placeholder="e.g., Lahore"
+                value={universityCity}
+                onChange={(e) => setUniversityCity(e.target.value)}
+                icon={<MapPin size={18} />}
+              />
+              <Input
+                label="Country"
+                type="text"
+                placeholder="e.g., Pakistan"
+                value={universityCountry}
+                onChange={(e) => setUniversityCountry(e.target.value)}
+                icon={<Globe size={18} />}
+              />
+            </div>
 
             <div className="bg-[#31A6A8]/5 border border-[#31A6A8]/20 rounded-lg p-4 mt-4">
               <p className="text-[#a0a0a0] text-sm leading-relaxed">

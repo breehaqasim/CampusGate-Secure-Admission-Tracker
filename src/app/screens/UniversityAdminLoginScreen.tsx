@@ -3,7 +3,14 @@ import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { Building2, Mail, Lock } from 'lucide-react';
-import { loginUser } from '../services/authService';
+import {
+  loginUser,
+  logoutUser,
+  requestPasswordReset,
+  sendEmailOtpForPrivilegedLogin,
+  verifyEmailOtpForPrivilegedLogin,
+} from '../services/authService';
+import { checkRateLimit, isValidEmail, normalizeEmail } from '../services/securityService';
 
 interface UniversityAdminLoginScreenProps {
   onBack: () => void;
@@ -16,6 +23,16 @@ export function UniversityAdminLoginScreen({ onBack, onRegisterClick, onLogin }:
   const [password, setPassword] = useState('');
 
   const handleLogin = async () => {
+    if (!isValidEmail(email)) {
+      alert('Please enter a valid email address.');
+      return;
+    }
+    const loginLimit = checkRateLimit(`uadmin-login:${normalizeEmail(email)}`, 8, 10 * 60 * 1000);
+    if (!loginLimit.allowed) {
+      alert('Too many login attempts. Please wait before trying again.');
+      return;
+    }
+
     try {
       const profile = await loginUser(email, password);
 
@@ -24,14 +41,52 @@ export function UniversityAdminLoginScreen({ onBack, onRegisterClick, onLogin }:
         return;
       }
 
-      if (!profile.approved) {
+      if (profile.approved === null) {
+        alert('Your admin request has been rejected by Super Admin.');
+        return;
+      }
+
+      if (profile.approved === false) {
         alert('Your admin request is pending approval from Super Admin.');
         return;
       }
 
+      // Step-up authentication for privileged role via email OTP.
+      await logoutUser();
+      await sendEmailOtpForPrivilegedLogin(email);
+      const otp = prompt('Enter the OTP code sent to your email to complete login:');
+      if (!otp) {
+        alert('OTP is required to complete login.');
+        return;
+      }
+      const otpLimit = checkRateLimit(`uadmin-otp:${normalizeEmail(email)}`, 5, 10 * 60 * 1000);
+      if (!otpLimit.allowed) {
+        alert('Too many OTP attempts. Please request login again.');
+        return;
+      }
+      await verifyEmailOtpForPrivilegedLogin(email, otp, 'university-admin');
+
       onLogin();
     } catch (error: any) {
       alert(error.message);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    const targetEmail = email.trim() || prompt('Enter your email for reset link:') || '';
+    if (!targetEmail) return;
+
+    const resetLimit = checkRateLimit(`uadmin-reset:${normalizeEmail(targetEmail)}`, 3, 15 * 60 * 1000);
+    if (!resetLimit.allowed) {
+      alert('Too many reset requests. Please try again later.');
+      return;
+    }
+
+    try {
+      await requestPasswordReset(targetEmail);
+      alert('Password reset email sent. Please check your inbox.');
+    } catch (error: any) {
+      alert(error.message || 'Failed to send password reset email.');
     }
   };
 
@@ -75,7 +130,7 @@ export function UniversityAdminLoginScreen({ onBack, onRegisterClick, onLogin }:
                 />
                 <span>Remember me</span>
               </label>
-              <a href="#" className="text-[#31A6A8] hover:text-[#2a9395] transition-colors">
+              <a href="#" onClick={(e) => { e.preventDefault(); handleForgotPassword(); }} className="text-[#31A6A8] hover:text-[#2a9395] transition-colors">
                 Forgot password?
               </a>
             </div>
