@@ -42,7 +42,7 @@ export function UniversityDetailsScreen({ universityId, onBack, onLogout, onSave
       <Navbar userName="John Doe" onLogout={onLogout} />
 
       <main className="p-8 relative">
-        <BackButton onClick={onBack} />
+        <BackButton onClick={onBack} className="static mb-6" />
         <div>
           <div className="mb-8">
             <h1 className="text-white text-4xl mb-3">{university.name}</h1>

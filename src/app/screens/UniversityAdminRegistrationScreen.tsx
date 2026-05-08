@@ -20,14 +20,14 @@ export function UniversityAdminRegistrationScreen({ onBack, onLoginClick }: Univ
   //   console.log('Admin registration request submitted:', { fullName, email, password, universityName });
   // };
   const handleSubmitRequest = async () => {
-  try {
-    await requestUniversityAdmin(fullName, email, password, universityName);
-    alert('Request submitted. Wait for Super Admin approval.');
-    onLoginClick();
-  } catch (error: any) {
-    alert(error.message);
-  }
-};
+    try {
+      await requestUniversityAdmin(fullName, email, password, universityName);
+      alert('Request submitted. Wait for Super Admin approval.');
+      onLoginClick();
+    } catch (error: any) {
+      alert(error.message);
+    }
+  };
 
   return (
     <>

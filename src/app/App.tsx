@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { RoleSelectionScreen } from './screens/RoleSelectionScreen';
 import { StudentLoginScreen } from './screens/StudentLoginScreen';
 import { StudentRegistrationScreen } from './screens/StudentRegistrationScreen';
@@ -10,6 +10,8 @@ import { UniversityAdminDashboardScreen } from './screens/UniversityAdminDashboa
 import { AddEditUniversityScreen } from './screens/AddEditUniversityScreen';
 import { SuperAdminLoginScreen } from './screens/SuperAdminLoginScreen';
 import { SuperAdminDashboardScreen } from './screens/SuperAdminDashboardScreen';
+import { logoutUser } from './services/authService';
+import { supabase } from '../lib/supabase';
 
 type Screen =
   | 'role-selection'
@@ -29,6 +31,73 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('role-selection');
   const [selectedUniversityId, setSelectedUniversityId] = useState<string>('');
   const [favorites, setFavorites] = useState<any[]>([]);
+  const [isSessionLoading, setIsSessionLoading] = useState(true);
+
+  const getScreenByProfile = (profile: any): Screen => {
+    const role = String(profile?.role || '').toLowerCase();
+    const approved = Boolean(profile?.approved);
+
+    if (role === 'student') return 'student-dashboard';
+    if (role === 'super-admin' || role === 'super_admin') return 'super-admin-dashboard';
+    if (role === 'university-admin' || role === 'university_admin') {
+      return approved ? 'university-admin-dashboard' : 'university-admin-login';
+    }
+
+    return 'role-selection';
+  };
+
+  const resolveSessionScreen = async (user: any) => {
+    if (!user) {
+      setCurrentScreen('role-selection');
+      return;
+    }
+
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('role, approved')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (profile) {
+        setCurrentScreen(getScreenByProfile(profile));
+        return;
+      }
+
+      setCurrentScreen(getScreenByProfile(user?.user_metadata || {}));
+    } catch (error) {
+      console.error(error);
+      setCurrentScreen('role-selection');
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const bootstrapSession = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!isMounted) return;
+        await resolveSessionScreen(data.session?.user || null);
+      } finally {
+        if (isMounted) setIsSessionLoading(false);
+      }
+    };
+
+    bootstrapSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!isMounted) return;
+      await resolveSessionScreen(session?.user || null);
+    });
+
+    return () => {
+      isMounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
 
   const handleRoleSelect = (role: 'student' | 'university-admin' | 'super-admin') => {
     if (role === 'student') {
@@ -40,8 +109,16 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
-    setCurrentScreen('role-selection');
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setFavorites([]);
+      setSelectedUniversityId('');
+      setCurrentScreen('role-selection');
+    }
   };
 
   const handleViewUniversity = (universityId: string) => {
@@ -188,6 +265,14 @@ export default function App() {
     'add-university',
     'edit-university',
   ].includes(currentScreen);
+
+  if (isSessionLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#0a0a0a] via-[#0f0f0f] to-[#1a1a1a] dark flex items-center justify-center">
+        <p className="text-[#a0a0a0] text-sm">Restoring session...</p>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen bg-gradient-to-br from-[#0a0a0a] via-[#0f0f0f] to-[#1a1a1a] dark ${

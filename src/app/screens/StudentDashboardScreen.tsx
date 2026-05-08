@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Navbar } from '../components/Navbar';
 import { Card } from '../components/Card';
 import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { Table } from '../components/Table';
 import { Search, Globe, Heart, Trash2 } from 'lucide-react';
+import { getUniversities } from '../services/universityService';
+import { supabase } from "../../lib/supabase";
 
 interface StudentDashboardScreenProps {
   onLogout: () => void;
@@ -18,14 +20,109 @@ export function StudentDashboardScreen({ onLogout, onViewUniversity, favorites, 
   const [country, setCountry] = useState('');
   const [city, setCity] = useState('');
   const [activeTab, setActiveTab] = useState<'discover' | 'favorites'>('discover');
+  const [studentName, setStudentName] = useState('Student');
+  const [universities, setUniversities] = useState<any[]>([]);
+  const [allUniversities, setAllUniversities] = useState<any[]>([]);
 
-  const universities = [
-    { id: '1', name: 'Stanford University', country: 'USA', city: 'Stanford' },
-    { id: '2', name: 'University of Oxford', country: 'UK', city: 'Oxford' },
-    { id: '3', name: 'MIT', country: 'USA', city: 'Cambridge' },
-    { id: '4', name: 'University of Toronto', country: 'Canada', city: 'Toronto' },
-    { id: '5', name: 'ETH Zurich', country: 'Switzerland', city: 'Zurich' },
-  ];
+  const getProgramsList = (programs: any): string[] => {
+    if (Array.isArray(programs)) {
+      return programs.map((item) => String(item).trim()).filter(Boolean);
+    }
+
+    if (typeof programs === 'string') {
+      const normalized = programs.replace(/^\{|\}$/g, '');
+      return normalized
+        .split(',')
+        .map((item) => item.trim().replace(/^"|"$/g, ''))
+        .filter(Boolean);
+    }
+
+    return [];
+  };
+
+  const loadStudentProfile = async () => {
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) return;
+
+      const metadataName = String(authData.user.user_metadata?.full_name || '').trim();
+      const emailFallback = String(authData.user.email || '')
+        .split('@')[0]
+        ?.replace(/[._-]/g, ' ')
+        ?.trim();
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', authData.user.id)
+        .maybeSingle();
+
+      const resolvedName =
+        String(profile?.full_name || '').trim() ||
+        metadataName ||
+        emailFallback ||
+        'Student';
+
+      setStudentName(resolvedName);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const applySearchFilters = (source: any[]) => {
+    const search = searchQuery.trim().toLowerCase();
+    const countryFilter = country.trim().toLowerCase();
+    const cityFilter = city.trim().toLowerCase();
+
+    return source.filter((uni) => {
+      const name = String(uni?.name || '').toLowerCase();
+      const uniCountry = String(uni?.country || '').toLowerCase();
+      const uniCity = String(uni?.city || '').toLowerCase();
+
+      if (search && !name.includes(search)) return false;
+      if (countryFilter && !uniCountry.includes(countryFilter)) return false;
+      if (cityFilter && !uniCity.includes(cityFilter)) return false;
+      return true;
+    });
+  };
+
+  const fetchAllUniversities = async () => {
+    try {
+      const data = await getUniversities();
+      const rows = data || [];
+      setAllUniversities(rows);
+      setUniversities(applySearchFilters(rows));
+    } catch (error: any) {
+      alert(error.message || 'Failed to fetch universities');
+    }
+  };
+
+  const handleSearch = () => {
+    setUniversities(applySearchFilters(allUniversities));
+  };
+
+  useEffect(() => {
+    loadStudentProfile();
+    fetchAllUniversities();
+  }, []);
+
+  useEffect(() => {
+    handleSearch();
+  }, [searchQuery, country, city, allUniversities]);
+
+  const totalCountries = useMemo(() => {
+    return new Set(
+      allUniversities
+        .map((uni) => String(uni.country || '').trim())
+        .filter(Boolean)
+    ).size;
+  }, [allUniversities]);
+
+  const totalPrograms = useMemo(() => {
+    return allUniversities.reduce((count, university) => {
+      return count + getProgramsList(university.programs).length;
+    }, 0);
+  }, [allUniversities]);
 
   const tableColumns = [
     { key: 'name', label: 'University Name' },
@@ -34,7 +131,7 @@ export function StudentDashboardScreen({ onLogout, onViewUniversity, favorites, 
     { key: 'action', label: 'Action', align: 'right' as const },
   ];
 
-  const tableData = universities.map(uni => ({
+  const tableData = universities.map((uni) => ({
     name: uni.name,
     country: uni.country,
     city: uni.city,
@@ -47,7 +144,7 @@ export function StudentDashboardScreen({ onLogout, onViewUniversity, favorites, 
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] dark">
-      <Navbar userName="John Doe" onLogout={onLogout} />
+      <Navbar userName={studentName} onLogout={onLogout} />
 
       <main className="p-8">
         <div>
@@ -96,7 +193,7 @@ export function StudentDashboardScreen({ onLogout, onViewUniversity, favorites, 
                       onChange={(e) => setCity(e.target.value)}
                     />
                   </div>
-                  <Button variant="primary" className="w-full">
+                  <Button variant="primary" className="w-full" onClick={handleSearch}>
                     Search
                   </Button>
                 </div>
@@ -106,15 +203,15 @@ export function StudentDashboardScreen({ onLogout, onViewUniversity, favorites, 
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-3 bg-[#2a2a2a] rounded-lg">
                     <span className="text-[#a0a0a0]">Universities Available</span>
-                    <span className="text-white text-xl">250+</span>
+                    <span className="text-white text-xl">{allUniversities.length}</span>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-[#2a2a2a] rounded-lg">
                     <span className="text-[#a0a0a0]">Countries</span>
-                    <span className="text-white text-xl">45</span>
+                    <span className="text-white text-xl">{totalCountries}</span>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-[#2a2a2a] rounded-lg">
                     <span className="text-[#a0a0a0]">Programs</span>
-                    <span className="text-white text-xl">1,200+</span>
+                    <span className="text-white text-xl">{totalPrograms}</span>
                   </div>
                 </div>
               </Card>

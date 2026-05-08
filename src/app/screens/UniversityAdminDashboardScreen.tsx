@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navbar } from '../components/Navbar';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Plus, Edit, Trash2 } from 'lucide-react';
+import { deleteUniversity, getUniversities } from '../services/universityService';
+import { supabase } from "../../lib/supabase";
 
 interface UniversityAdminDashboardScreenProps {
   onLogout: () => void;
@@ -15,21 +17,77 @@ export function UniversityAdminDashboardScreen({
   onAddUniversity,
   onEditUniversity,
 }: UniversityAdminDashboardScreenProps) {
-  const [universities, setUniversities] = useState([
-    { id: '1', name: 'Stanford University', location: 'Stanford, USA', programs: 'Computer Science, Engineering, Business' },
-    { id: '2', name: 'MIT', location: 'Cambridge, USA', programs: 'Engineering, Physics, Mathematics' },
-    { id: '3', name: 'Harvard University', location: 'Cambridge, USA', programs: 'Law, Medicine, Business, Arts' },
-  ]);
+  const [universities, setUniversities] = useState<any[]>([]);
+  const [adminName, setAdminName] = useState('Admin User');
 
-  const handleDeleteUniversity = (universityId: string) => {
+  const getProgramsList = (programs: any): string[] => {
+    if (Array.isArray(programs)) {
+      return programs.map((item) => String(item).trim()).filter(Boolean);
+    }
+
+    if (typeof programs === 'string') {
+      const normalized = programs.replace(/^\{|\}$/g, '');
+      return normalized
+        .split(',')
+        .map((item) => item.trim().replace(/^"|"$/g, ''))
+        .filter(Boolean);
+    }
+
+    return [];
+  };
+
+  const totalPrograms = universities.reduce((count, university) => {
+    return count + getProgramsList(university.programs).length;
+  }, 0);
+
+  const fetchUniversities = async () => {
+    try {
+      const data = await getUniversities();
+      setUniversities(data || []);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const fetchAdminName = async () => {
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) return;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', authData.user.id)
+        .maybeSingle();
+
+      if (profile?.full_name) {
+        setAdminName(profile.full_name);
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  useEffect(() => {
+    fetchUniversities();
+    fetchAdminName();
+  }, []);
+
+  const handleDeleteUniversity = async (universityId: string) => {
     if (confirm('Are you sure you want to delete this university?')) {
-      setUniversities(prev => prev.filter(uni => uni.id !== universityId));
+      try {
+        await deleteUniversity(universityId);
+        setUniversities((prev) => prev.filter((uni) => uni.id !== universityId));
+        alert('University deleted successfully');
+      } catch (error: any) {
+        alert(error.message || 'Failed to delete university');
+      }
     }
   };
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] dark">
-      <Navbar userName="Admin User" onLogout={onLogout} />
+      <Navbar userName={adminName} onLogout={onLogout} />
 
       <main className="p-8">
         <div>
@@ -54,7 +112,7 @@ export function UniversityAdminDashboardScreen({
             <Card>
               <div className="text-center">
                 <p className="text-[#a0a0a0] text-sm mb-2">Total Programs</p>
-                <p className="text-4xl text-white">45</p>
+                <p className="text-4xl text-white">{totalPrograms}</p>
               </div>
             </Card>
           </div>
@@ -77,8 +135,10 @@ export function UniversityAdminDashboardScreen({
                       className="border-b border-[#2a2a2a] hover:bg-[#2a2a2a]/30 transition-colors"
                     >
                       <td className="px-4 py-4 text-white">{uni.name}</td>
-                      <td className="px-4 py-4 text-white">{uni.location}</td>
-                      <td className="px-4 py-4 text-white">{uni.programs}</td>
+                      <td className="px-4 py-4 text-white">{uni.city}, {uni.country}</td>
+                      <td className="px-4 py-4 text-white">
+                        {Array.isArray(uni.programs) ? uni.programs.join(', ') : (uni.programs || '-')}
+                      </td>
                       <td className="px-4 py-4 text-right">
                         <div className="flex gap-2 justify-end">
                           <Button variant="secondary" size="sm" onClick={() => onEditUniversity(uni.id)}>

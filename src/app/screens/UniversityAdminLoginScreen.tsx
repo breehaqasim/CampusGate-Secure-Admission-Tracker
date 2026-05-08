@@ -3,6 +3,7 @@ import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { Building2, Mail, Lock } from 'lucide-react';
+import { loginUser } from '../services/authService';
 
 interface UniversityAdminLoginScreenProps {
   onBack: () => void;
@@ -14,9 +15,24 @@ export function UniversityAdminLoginScreen({ onBack, onRegisterClick, onLogin }:
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleLogin = () => {
-    console.log('Admin login attempted with:', { email, password });
-    onLogin();
+  const handleLogin = async () => {
+    try {
+      const profile = await loginUser(email, password);
+
+      if (profile.role !== 'university-admin') {
+        alert('Access denied. This login is only for university admins.');
+        return;
+      }
+
+      if (!profile.approved) {
+        alert('Your admin request is pending approval from Super Admin.');
+        return;
+      }
+
+      onLogin();
+    } catch (error: any) {
+      alert(error.message);
+    }
   };
 
   return (
