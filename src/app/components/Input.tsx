@@ -9,6 +9,8 @@ interface InputProps {
   icon?: ReactNode;
   className?: string;
   required?: boolean;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  autoComplete?: string;
 }
 
 export function Input({
@@ -19,7 +21,9 @@ export function Input({
   onChange,
   icon,
   className = '',
-  required = false
+  required = false,
+  inputMode,
+  autoComplete,
 }: InputProps) {
   return (
     <div className={className}>
@@ -41,6 +45,8 @@ export function Input({
           onChange={onChange}
           placeholder={placeholder}
           required={required}
+          inputMode={inputMode}
+          autoComplete={autoComplete}
           className={`w-full bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg px-4 py-2.5 text-white placeholder:text-[#6a6a6a] focus:outline-none focus:border-[#31A6A8] focus:ring-2 focus:ring-[#31A6A8]/20 transition-all ${
             icon ? 'pl-10' : ''
           }`}

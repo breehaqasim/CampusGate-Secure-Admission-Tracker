@@ -10,11 +10,13 @@ import { UniversityAdminDashboardScreen } from './screens/UniversityAdminDashboa
 import { AddEditUniversityScreen } from './screens/AddEditUniversityScreen';
 import { SuperAdminLoginScreen } from './screens/SuperAdminLoginScreen';
 import { SuperAdminDashboardScreen } from './screens/SuperAdminDashboardScreen';
-import { logoutUser } from './services/authService';
+import { logoutUser, isPasswordRecoveryHash } from './services/authService';
 import { supabase } from '../lib/supabase';
+import { SetNewPasswordScreen } from './screens/SetNewPasswordScreen';
 
 type Screen =
   | 'role-selection'
+  | 'set-new-password'
   | 'student-login'
   | 'student-registration'
   | 'student-dashboard'
@@ -37,12 +39,15 @@ const PORTAL_FLOW_SCREENS: Screen[] = [
 ];
 
 export default function App() {
+  /** Auto sign-out after no user input (mousemove, keydown, click, scroll, touch). */
   const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
   const [currentScreen, setCurrentScreen] = useState<Screen>('role-selection');
   const [selectedUniversityId, setSelectedUniversityId] = useState<string>('');
   const [favorites, setFavorites] = useState<any[]>([]);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
   const currentScreenRef = useRef<Screen>(currentScreen);
+  /** While true, ignore auth routing so PASSWORD_RECOVERY / reset UI is not overwritten by INITIAL_SESSION. */
+  const passwordRecoveryFlowRef = useRef(false);
   useEffect(() => {
     currentScreenRef.current = currentScreen;
   }, [currentScreen]);
@@ -101,40 +106,74 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
-    const bootstrapSession = async () => {
-      try {
-        const sessionResult = await withTimeout(
-          supabase.auth.getSession(),
-          4000,
-          { data: { session: null } } as any
-        );
-        if (!isMounted) return;
-        setIsSessionLoading(false);
-        resolveSessionScreen(sessionResult.data?.session?.user || null);
-      } finally {
-        if (isMounted) setIsSessionLoading(false);
-      }
-    };
-
-    bootstrapSession();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
+
+      // Password recovery email link — must not route by profile (often lands on role-selection).
+      if (event === 'PASSWORD_RECOVERY') {
+        passwordRecoveryFlowRef.current = true;
+        setCurrentScreen('set-new-password');
+        setIsSessionLoading(false);
+        return;
+      }
+
+      // Same-tab recovery: INITIAL_SESSION may run before PASSWORD_RECOVERY while hash still has type=recovery.
+      if (event === 'INITIAL_SESSION' && session?.user && typeof window !== 'undefined') {
+        if (isPasswordRecoveryHash()) {
+          passwordRecoveryFlowRef.current = true;
+          setCurrentScreen('set-new-password');
+          setIsSessionLoading(false);
+          return;
+        }
+      }
+
+      if (passwordRecoveryFlowRef.current) {
+        return;
+      }
+
       const portalScreen = currentScreenRef.current;
       const onPortalFlow = PORTAL_FLOW_SCREENS.includes(portalScreen);
 
-      // Avoid racing the global router ahead of portal-specific login (wrong-role sign-in briefly showed student dashboard).
       if (onPortalFlow && session?.user) {
         return;
       }
 
-      // After a failed portal attempt, loginUser signs out — keep user on the same login/register screen.
       if (onPortalFlow && !session?.user) {
         return;
       }
 
       resolveSessionScreen(session?.user || null);
     });
+
+    const bootstrapSession = async () => {
+      try {
+        // Read hash before async work — detectSessionInUrl may strip it after getSession().
+        const recoveryFromUrl =
+          typeof window !== 'undefined' && isPasswordRecoveryHash();
+
+        const sessionResult = await withTimeout(
+          supabase.auth.getSession(),
+          4000,
+          { data: { session: null } } as any
+        );
+        if (!isMounted) return;
+
+        const session = sessionResult.data?.session;
+        if (session?.user && recoveryFromUrl) {
+          passwordRecoveryFlowRef.current = true;
+          setCurrentScreen('set-new-password');
+          setIsSessionLoading(false);
+          return;
+        }
+
+        setIsSessionLoading(false);
+        resolveSessionScreen(session?.user || null);
+      } finally {
+        if (isMounted) setIsSessionLoading(false);
+      }
+    };
+
+    bootstrapSession();
 
     return () => {
       isMounted = false;
@@ -156,10 +195,10 @@ export default function App() {
       clearExistingTimeout();
       inactivityTimeout = setTimeout(async () => {
         if (!isMounted) return;
+        if (currentScreenRef.current === 'set-new-password') return;
         const { data } = await supabase.auth.getSession();
         if (data.session) {
-          // Security-sensitive: enforce session expiration on client inactivity.
-          await supabase.auth.signOut();
+          await supabase.auth.signOut({ scope: 'global' });
           setFavorites([]);
           setSelectedUniversityId('');
           setCurrentScreen('role-selection');
@@ -232,8 +271,31 @@ export default function App() {
     return favorites.some(fav => fav.id === universityId);
   };
 
+  const handlePasswordRecoveryDone = () => {
+    passwordRecoveryFlowRef.current = false;
+    setFavorites([]);
+    setSelectedUniversityId('');
+    setCurrentScreen('role-selection');
+  };
+
+  const handleCancelPasswordRecovery = async () => {
+    try {
+      await logoutUser();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      passwordRecoveryFlowRef.current = false;
+      setCurrentScreen('role-selection');
+    }
+  };
+
   const renderScreen = () => {
     switch (currentScreen) {
+      case 'set-new-password':
+        return (
+          <SetNewPasswordScreen onDone={handlePasswordRecoveryDone} onCancel={handleCancelPasswordRecovery} />
+        );
+
       case 'role-selection':
         return <RoleSelectionScreen onSelectRole={handleRoleSelect} />;
 
@@ -339,6 +401,7 @@ export default function App() {
 
   const isAuthScreen = [
     'role-selection',
+    'set-new-password',
     'student-login',
     'student-registration',
     'university-admin-login',

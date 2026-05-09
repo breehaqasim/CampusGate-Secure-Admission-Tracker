@@ -4,6 +4,7 @@ import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { Building2, Mail, Lock, User, School, MapPin, Globe } from 'lucide-react';
 import { requestUniversityAdmin } from '../services/authService';
+import { getPasswordPolicyHint } from '../services/passwordPolicy';
 
 interface UniversityAdminRegistrationScreenProps {
   onBack: () => void;
@@ -64,7 +65,7 @@ export function UniversityAdminRegistrationScreen({ onBack, onLoginClick }: Univ
             <Input
               label="Email Address"
               type="email"
-              placeholder="admin@university.edu"
+              placeholder="Enter authentic working email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               icon={<Mail size={18} />}
@@ -78,6 +79,7 @@ export function UniversityAdminRegistrationScreen({ onBack, onLoginClick }: Univ
               onChange={(e) => setPassword(e.target.value)}
               icon={<Lock size={18} />}
             />
+            <p className="text-[#8a8a8a] text-xs leading-relaxed -mt-2">{getPasswordPolicyHint()}</p>
 
             <Input
               label="University Name"
