@@ -4,7 +4,6 @@ import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { GraduationCap, Mail, Lock, User } from 'lucide-react';
 import { signUpStudent } from '../services/authService';
-import { checkRateLimit, isValidEmail, validateStrongPassword } from '../services/securityService';
 
 interface StudentRegistrationScreenProps {
   onBack: () => void;
@@ -22,33 +21,14 @@ export function StudentRegistrationScreen({ onBack, onLoginClick, onSignUp }: St
   //   onSignUp();
   // };
   const handleSignUp = async () => {
-  if (!fullName.trim() || !email.trim() || !password) {
-    alert('Please fill all required fields.');
-    return;
-  }
-  if (!isValidEmail(email)) {
-    alert('Please enter a valid email address.');
-    return;
-  }
-  const passwordIssue = validateStrongPassword(password);
-  if (passwordIssue) {
-    alert(passwordIssue);
-    return;
-  }
-  const registrationLimit = checkRateLimit(`student-register:${email.toLowerCase()}`, 5, 10 * 60 * 1000);
-  if (!registrationLimit.allowed) {
-    alert('Too many signup attempts. Please try again in a few minutes.');
-    return;
-  }
-
-  try {
-    await signUpStudent(fullName, email, password);
-    alert('Student account created successfully');
-    onSignUp();
-  } catch (error: any) {
-    alert(error.message);
-  }
-};
+    try {
+      await signUpStudent(fullName, email, password);
+      alert('Student account created successfully');
+      onSignUp();
+    } catch (error: any) {
+      alert(error.message);
+    }
+  };
 
   return (
     <>
@@ -94,7 +74,7 @@ export function StudentRegistrationScreen({ onBack, onLoginClick, onSignUp }: St
             <Button
               variant="primary"
               size="lg"
-              onClick={handleSignUp}
+              onClick={() => void handleSignUp()}
               className="w-full mt-6"
             >
               Sign Up

@@ -12,7 +12,47 @@ function isMissingUniversityIdColumnError(error: any) {
 
 function isMissingUniversityProgramsTableError(error: any) {
   const message = String(error?.message || '').toLowerCase();
-  return message.includes('could not find the table') && message.includes('university_programs');
+  const mentionsPrograms =
+    message.includes('university_programs') || message.includes('"university_programs"');
+  if (!mentionsPrograms) return false;
+  return (
+    message.includes('could not find') ||
+    message.includes('does not exist') ||
+    message.includes('schema cache')
+  );
+}
+
+function isUndefinedColumnError(error: any, columnSnakeCase: string) {
+  const message = String(error?.message || '').toLowerCase();
+  const col = columnSnakeCase.toLowerCase();
+  if (!message.includes(col)) return false;
+  return (
+    message.includes('could not find') ||
+    message.includes('does not exist') ||
+    message.includes('undefined column')
+  );
+}
+
+/** Normalize DB row shapes (e.g. sat_score vs minimum_sat_score) for the UI. */
+function mapProgramRow(row: any): UniversityProgram {
+  if (!row) {
+    throw new Error('No program row returned after save.');
+  }
+  return {
+    id: row.id,
+    university_id: row.university_id,
+    program_name: String(row.program_name ?? ''),
+    degree_type: String(row.degree_type ?? ''),
+    duration: String(row.duration ?? ''),
+    tuition_fee: String(row.tuition_fee ?? row.cost ?? ''),
+    minimum_sat_score: String(row.minimum_sat_score ?? row.sat_score ?? ''),
+    intake_semester: String(row.intake_semester ?? ''),
+    eligibility_requirements: String(row.eligibility_requirements ?? ''),
+    program_description: String(row.program_description ?? ''),
+    is_active: row.is_active ?? true,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
 }
 
 function toReadableUniversityError(error: any): Error {
@@ -154,7 +194,9 @@ export async function getProgramsByUniversity(universityId: string) {
     .eq('university_id', universityId)
     .order('created_at', { ascending: false });
 
-  if (!error) return (data || []) as UniversityProgram[];
+  if (!error) {
+    return (data || []).map((row: any) => mapProgramRow(row));
+  }
 
   if (!isMissingUniversityProgramsTableError(error)) {
     throw toReadableUniversityError(error);
@@ -223,22 +265,75 @@ export async function getProgramsByUniversity(universityId: string) {
 }
 
 export async function addUniversityProgram(universityId: string, program: UniversityProgramInput) {
-  const payload = {
+  const payload: Record<string, unknown> = {
     university_id: universityId,
     ...program,
     is_active: true,
   };
 
-  const { data, error } = await supabase
-    .from('university_programs')
-    .insert(payload)
-    .select('*')
-    .single();
+  const tryInsert = async (row: Record<string, unknown>) => {
+    const { data, error } = await supabase
+      .from('university_programs')
+      .insert(row)
+      .select('*')
+      .maybeSingle();
 
-  if (!error) return data as UniversityProgram;
+    const singleError =
+      error ??
+      ((!data
+        ? ({
+            message:
+              'Save may have succeeded but no row was returned. In Supabase, allow INSERT and SELECT on university_programs for your role (RETURNING rows), or use the legacy universities.programs column.',
+          } as any)
+        : null) as any);
+    return { data, error: singleError as any };
+  };
 
-  if (!isMissingUniversityProgramsTableError(error)) {
-    throw toReadableUniversityError(error);
+  let { data, error } = await tryInsert(payload);
+
+  if (!error && data) {
+    return mapProgramRow(data);
+  }
+
+  // Common schema aliases (local Supabase setups differ).
+  if (error && isUndefinedColumnError(error, 'minimum_sat_score')) {
+    const { minimum_sat_score, ...rest } = payload;
+    const trimmed = String(minimum_sat_score ?? '').trim();
+    const next = trimmed ? { ...rest, sat_score: trimmed } : { ...rest };
+    ({ data, error } = await tryInsert(next));
+    if (!error && data) {
+      return mapProgramRow(data);
+    }
+  }
+
+  if (error && isUndefinedColumnError(error, 'tuition_fee')) {
+    const { tuition_fee, ...rest } = payload;
+    const next = { ...rest, cost: tuition_fee };
+    ({ data, error } = await tryInsert(next));
+    if (!error && data) {
+      return mapProgramRow(data);
+    }
+  }
+
+  // Both tuition_fee & minimum_sat_score wrong on same insert — try cost + sat_score.
+  const p = { ...payload } as Record<string, unknown>;
+  if (typeof p.minimum_sat_score === 'string' && p.minimum_sat_score.trim()) {
+    p.sat_score = p.minimum_sat_score;
+    delete p.minimum_sat_score;
+  }
+  if (typeof p.tuition_fee === 'string') {
+    p.cost = p.tuition_fee;
+    delete p.tuition_fee;
+  }
+  ({ data, error } = await tryInsert(p));
+  if (!error && data) {
+    return mapProgramRow(data);
+  }
+
+  const lastError = error;
+
+  if (!isMissingUniversityProgramsTableError(lastError)) {
+    throw toReadableUniversityError(lastError);
   }
 
   // Fallback for legacy schema: persist serialized program objects in universities.programs.

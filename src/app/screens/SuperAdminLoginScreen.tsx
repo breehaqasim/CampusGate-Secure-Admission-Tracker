@@ -3,14 +3,7 @@ import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { Shield, Mail, Lock } from 'lucide-react';
-import {
-  loginUser,
-  logoutUser,
-  requestPasswordReset,
-  sendEmailOtpForPrivilegedLogin,
-  verifyEmailOtpForPrivilegedLogin,
-} from '../services/authService';
-import { checkRateLimit, isValidEmail, normalizeEmail } from '../services/securityService';
+import { loginUser, requestPasswordReset } from '../services/authService';
 
 interface SuperAdminLoginScreenProps {
   onBack: () => void;
@@ -21,59 +14,24 @@ export function SuperAdminLoginScreen({ onBack, onLogin }: SuperAdminLoginScreen
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // const handleLogin = () => {
-  //   console.log('Super Admin login attempted with:', { email, password });
-  //   onLogin();
-  // };
   const handleLogin = async () => {
-  if (!isValidEmail(email)) {
-    alert('Please enter a valid email address.');
-    return;
-  }
-  const loginLimit = checkRateLimit(`super-login:${normalizeEmail(email)}`, 8, 10 * 60 * 1000);
-  if (!loginLimit.allowed) {
-    alert('Too many login attempts. Please wait before trying again.');
-    return;
-  }
+    try {
+      const profile = await loginUser(email, password);
 
-  try {
-    const profile = await loginUser(email, password);
+      if (profile.role !== 'super-admin') {
+        alert('Access denied. This login is only for super admin.');
+        return;
+      }
 
-    if (profile.role !== 'super-admin') {
-      alert('Access denied. This login is only for super admin.');
-      return;
+      onLogin();
+    } catch (error: any) {
+      alert(error.message);
     }
-
-    // Step-up authentication for privileged role via email OTP.
-    await logoutUser();
-    await sendEmailOtpForPrivilegedLogin(email);
-    const otp = prompt('Enter the OTP code sent to your email to complete login:');
-    if (!otp) {
-      alert('OTP is required to complete login.');
-      return;
-    }
-    const otpLimit = checkRateLimit(`super-otp:${normalizeEmail(email)}`, 5, 10 * 60 * 1000);
-    if (!otpLimit.allowed) {
-      alert('Too many OTP attempts. Please request login again.');
-      return;
-    }
-    await verifyEmailOtpForPrivilegedLogin(email, otp, 'super-admin');
-
-    onLogin();
-  } catch (error: any) {
-    alert(error.message);
-  }
-};
+  };
 
   const handleForgotPassword = async () => {
     const targetEmail = email.trim() || prompt('Enter your email for reset link:') || '';
     if (!targetEmail) return;
-
-    const resetLimit = checkRateLimit(`super-reset:${normalizeEmail(targetEmail)}`, 3, 15 * 60 * 1000);
-    if (!resetLimit.allowed) {
-      alert('Too many reset requests. Please try again later.');
-      return;
-    }
 
     try {
       await requestPasswordReset(targetEmail);
@@ -123,25 +81,18 @@ export function SuperAdminLoginScreen({ onBack, onLogin }: SuperAdminLoginScreen
                 />
                 <span>Remember me</span>
               </label>
-              <a href="#" onClick={(e) => { e.preventDefault(); handleForgotPassword(); }} className="text-[#31A6A8] hover:text-[#2a9395] transition-colors">
+              <a href="#" onClick={(e) => { e.preventDefault(); void handleForgotPassword(); }} className="text-[#31A6A8] hover:text-[#2a9395] transition-colors">
                 Forgot password?
               </a>
             </div>
 
-            <Button
-              variant="primary"
-              size="lg"
-              onClick={handleLogin}
-              className="w-full"
-            >
+            <Button variant="primary" size="lg" onClick={() => void handleLogin()} className="w-full">
               Login
             </Button>
           </div>
         </div>
 
-        <p className="text-center text-[#6a6a6a] text-xs mt-6">
-          Highest level system access - handle with care
-        </p>
+        <p className="text-center text-[#6a6a6a] text-xs mt-6">Highest level system access - handle with care</p>
       </div>
     </>
   );

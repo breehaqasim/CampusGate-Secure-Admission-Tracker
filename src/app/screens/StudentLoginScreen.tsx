@@ -4,7 +4,6 @@ import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { GraduationCap, Mail, Lock } from 'lucide-react';
 import { loginUser, requestPasswordReset } from '../services/authService';
-import { checkRateLimit, isValidEmail, normalizeEmail } from '../services/securityService';
 
 interface StudentLoginScreenProps {
   onBack: () => void;
@@ -21,39 +20,23 @@ export function StudentLoginScreen({ onBack, onSignUpClick, onLogin }: StudentLo
   //   onLogin();
   // };
   const handleLogin = async () => {
-  if (!isValidEmail(email)) {
-    alert('Please enter a valid email address.');
-    return;
-  }
-  const loginLimit = checkRateLimit(`student-login:${normalizeEmail(email)}`, 10, 10 * 60 * 1000);
-  if (!loginLimit.allowed) {
-    alert('Too many login attempts. Please wait and try again.');
-    return;
-  }
+    try {
+      const profile = await loginUser(email, password);
 
-  try {
-    const profile = await loginUser(email, password);
+      if (profile.role !== 'student') {
+        alert('Access denied. This login is only for students.');
+        return;
+      }
 
-    if (profile.role !== 'student') {
-      alert('Access denied. This login is only for students.');
-      return;
+      onLogin();
+    } catch (error: any) {
+      alert(error.message);
     }
-
-    onLogin();
-  } catch (error: any) {
-    alert(error.message);
-  }
-};
+  };
 
   const handleForgotPassword = async () => {
     const targetEmail = email.trim() || prompt('Enter your email for reset link:') || '';
     if (!targetEmail) return;
-
-    const resetLimit = checkRateLimit(`student-reset:${normalizeEmail(targetEmail)}`, 3, 15 * 60 * 1000);
-    if (!resetLimit.allowed) {
-      alert('Too many reset requests. Please try again later.');
-      return;
-    }
 
     try {
       await requestPasswordReset(targetEmail);
@@ -102,7 +85,7 @@ export function StudentLoginScreen({ onBack, onSignUpClick, onLogin }: StudentLo
                 />
                 <span>Remember me</span>
               </label>
-              <a href="#" onClick={(e) => { e.preventDefault(); handleForgotPassword(); }} className="text-[#31A6A8] hover:text-[#2a9395] transition-colors">
+              <a href="#" onClick={(e) => { e.preventDefault(); void handleForgotPassword(); }} className="text-[#31A6A8] hover:text-[#2a9395] transition-colors">
                 Forgot password?
               </a>
             </div>
@@ -110,7 +93,7 @@ export function StudentLoginScreen({ onBack, onSignUpClick, onLogin }: StudentLo
             <Button
               variant="primary"
               size="lg"
-              onClick={handleLogin}
+              onClick={() => void handleLogin()}
               className="w-full"
             >
               Login

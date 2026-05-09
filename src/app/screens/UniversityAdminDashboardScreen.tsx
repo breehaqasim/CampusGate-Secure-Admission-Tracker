@@ -76,16 +76,35 @@ export function UniversityAdminDashboardScreen({
   }, []);
 
   const handleAddProgram = async () => {
-    if (!university?.id) return;
+    if (!university?.id) {
+      alert('No university is linked to your admin account yet. Reload the page after your profile has a university, or contact support.');
+      return;
+    }
 
-    if (!programForm.program_name || !programForm.degree_type || !programForm.duration || !programForm.tuition_fee) {
-      alert('Please fill required program fields');
+    if (
+      !String(programForm.program_name || '').trim() ||
+      !String(programForm.degree_type || '').trim() ||
+      !String(programForm.duration || '').trim() ||
+      !String(programForm.tuition_fee || '').trim()
+    ) {
+      alert('Please fill all required fields: Program name, Degree type, Duration, and Tuition fee.');
       return;
     }
 
     try {
       setIsSavingProgram(true);
-      const createdProgram = await addUniversityProgram(university.id, programForm);
+      const trimmedForm: UniversityProgramInput = {
+        ...programForm,
+        program_name: programForm.program_name.trim(),
+        degree_type: programForm.degree_type.trim(),
+        duration: programForm.duration.trim(),
+        tuition_fee: programForm.tuition_fee.trim(),
+        minimum_sat_score: programForm.minimum_sat_score.trim(),
+        intake_semester: programForm.intake_semester.trim(),
+        eligibility_requirements: programForm.eligibility_requirements.trim(),
+        program_description: programForm.program_description.trim(),
+      };
+      const createdProgram = await addUniversityProgram(university.id, trimmedForm);
       setPrograms((prev) => [createdProgram, ...prev]);
       setIsModalOpen(false);
       resetProgramForm();
@@ -274,7 +293,7 @@ export function UniversityAdminDashboardScreen({
               <Button
                 variant="primary"
                 size="lg"
-                onClick={handleAddProgram}
+                onClick={() => void handleAddProgram()}
                 className="flex-1"
                 disabled={isSavingProgram}
               >

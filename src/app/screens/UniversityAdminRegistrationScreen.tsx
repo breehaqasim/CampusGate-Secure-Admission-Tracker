@@ -4,7 +4,6 @@ import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { Building2, Mail, Lock, User, School, MapPin, Globe } from 'lucide-react';
 import { requestUniversityAdmin } from '../services/authService';
-import { checkRateLimit, isValidEmail, validateStrongPassword } from '../services/securityService';
 
 interface UniversityAdminRegistrationScreenProps {
   onBack: () => void;
@@ -23,32 +22,6 @@ export function UniversityAdminRegistrationScreen({ onBack, onLoginClick }: Univ
   //   console.log('Admin registration request submitted:', { fullName, email, password, universityName });
   // };
   const handleSubmitRequest = async () => {
-    if (
-      !fullName.trim() ||
-      !email.trim() ||
-      !password.trim() ||
-      !universityName.trim() ||
-      !universityCity.trim() ||
-      !universityCountry.trim()
-    ) {
-      alert('Please fill all fields before submitting your request.');
-      return;
-    }
-    if (!isValidEmail(email)) {
-      alert('Please enter a valid email address.');
-      return;
-    }
-    const passwordIssue = validateStrongPassword(password);
-    if (passwordIssue) {
-      alert(passwordIssue);
-      return;
-    }
-    const registrationLimit = checkRateLimit(`admin-register:${email.toLowerCase()}`, 5, 10 * 60 * 1000);
-    if (!registrationLimit.allowed) {
-      alert('Too many signup attempts. Please try again in a few minutes.');
-      return;
-    }
-
     try {
       await requestUniversityAdmin(
         fullName,
@@ -143,7 +116,7 @@ export function UniversityAdminRegistrationScreen({ onBack, onLoginClick }: Univ
             <Button
               variant="primary"
               size="lg"
-              onClick={handleSubmitRequest}
+              onClick={() => void handleSubmitRequest()}
               className="w-full"
             >
               Submit Request
