@@ -3,7 +3,8 @@ import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { Building2, Mail, Lock } from 'lucide-react';
-import { loginUser, requestPasswordReset } from '../services/authService';
+// import { loginUser, requestPasswordReset } from '../services/authService';
+import { loginUser, logoutUser, requestPasswordReset } from '../services/authService';
 
 interface UniversityAdminLoginScreenProps {
   onBack: () => void;
@@ -17,23 +18,40 @@ export function UniversityAdminLoginScreen({ onBack, onRegisterClick, onLogin }:
 
   const handleLogin = async () => {
     try {
-      const profile = await loginUser(email, password);
+      const profile = await loginUser(email, password, "university-admin");
+
+      // if (profile.role !== 'university-admin') {
+      //   alert('Access denied. This login is only for university admins.');
+      //   return;
+      // }
+
+      // if (profile.approved === null) {
+      //   alert('Your admin request has been rejected by Super Admin.');
+      //   return;
+      // }
+
+      // if (profile.approved === false) {
+      //   alert('Your admin request is pending approval from Super Admin.');
+      //   return;
+      // }
 
       if (profile.role !== 'university-admin') {
-        alert('Access denied. This login is only for university admins.');
-        return;
-      }
+          await logoutUser();
+          alert('Access denied. This login is only for university admins.');
+          return;
+        }
 
       if (profile.approved === null) {
+        await logoutUser();
         alert('Your admin request has been rejected by Super Admin.');
         return;
       }
 
       if (profile.approved === false) {
+        await logoutUser();
         alert('Your admin request is pending approval from Super Admin.');
         return;
       }
-
       onLogin();
     } catch (error: any) {
       alert(error.message);

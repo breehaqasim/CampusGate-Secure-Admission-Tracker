@@ -3,7 +3,8 @@ import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { GraduationCap, Mail, Lock } from 'lucide-react';
-import { loginUser, requestPasswordReset } from '../services/authService';
+// import { loginUser,  requestPasswordReset } from '../services/authService';
+import { loginUser, logoutUser, requestPasswordReset } from '../services/authService';
 
 interface StudentLoginScreenProps {
   onBack: () => void;
@@ -21,9 +22,14 @@ export function StudentLoginScreen({ onBack, onSignUpClick, onLogin }: StudentLo
   // };
   const handleLogin = async () => {
     try {
-      const profile = await loginUser(email, password);
+      const profile = await loginUser(email, password, "student");
 
+      // if (profile.role !== 'student') {
+      //   alert('Access denied. This login is only for students.');
+      //   return;
+      // }
       if (profile.role !== 'student') {
+        await logoutUser();
         alert('Access denied. This login is only for students.');
         return;
       }

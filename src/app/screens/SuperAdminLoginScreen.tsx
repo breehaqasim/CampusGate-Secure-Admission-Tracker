@@ -3,7 +3,8 @@ import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
 import { Shield, Mail, Lock } from 'lucide-react';
-import { loginUser, requestPasswordReset } from '../services/authService';
+// import { loginUser, requestPasswordReset } from '../services/authService';
+import { loginUser, logoutUser, requestPasswordReset } from '../services/authService';
 
 interface SuperAdminLoginScreenProps {
   onBack: () => void;
@@ -16,9 +17,14 @@ export function SuperAdminLoginScreen({ onBack, onLogin }: SuperAdminLoginScreen
 
   const handleLogin = async () => {
     try {
-      const profile = await loginUser(email, password);
+      const profile = await loginUser(email, password, "super-admin");
 
+      // if (profile.role !== 'super-admin') {
+      //   alert('Access denied. This login is only for super admin.');
+      //   return;
+      // }
       if (profile.role !== 'super-admin') {
+        await logoutUser();
         alert('Access denied. This login is only for super admin.');
         return;
       }

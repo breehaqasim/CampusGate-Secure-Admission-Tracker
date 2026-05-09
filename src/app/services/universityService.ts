@@ -85,6 +85,8 @@ export interface UniversityProgram extends UniversityProgramInput {
   is_active?: boolean;
   created_at?: string;
   updated_at?: string;
+  /** Index in `universities.programs` when using legacy storage (not `university_programs`). */
+  legacy_storage_index?: number;
 }
 
 export async function getAdminUniversityContext() {
@@ -220,6 +222,7 @@ export async function getProgramsByUniversity(universityId: string) {
           return {
             id: `legacy-${universityId}-${index}`,
             university_id: universityId,
+            legacy_storage_index: index,
             program_name: parsed.program_name || 'Program',
             degree_type: parsed.degree_type || '-',
             duration: parsed.duration || '-',
@@ -234,6 +237,7 @@ export async function getProgramsByUniversity(universityId: string) {
           return {
             id: `legacy-${universityId}-${index}`,
             university_id: universityId,
+            legacy_storage_index: index,
             program_name: entry || 'Program',
             degree_type: '-',
             duration: '-',
@@ -250,6 +254,7 @@ export async function getProgramsByUniversity(universityId: string) {
       return {
         id: `legacy-${universityId}-${index}`,
         university_id: universityId,
+        legacy_storage_index: index,
         program_name: String(entry?.program_name || 'Program'),
         degree_type: String(entry?.degree_type || '-'),
         duration: String(entry?.duration || '-'),
@@ -346,6 +351,7 @@ export async function addUniversityProgram(universityId: string, program: Univer
   if (universityError) throw toReadableUniversityError(universityError);
 
   const existingPrograms = Array.isArray(university?.programs) ? [...university.programs] : [];
+  const newIndex = existingPrograms.length;
   existingPrograms.push(JSON.stringify({ ...program, is_active: true }));
 
   const { error: updateError } = await supabase
@@ -356,11 +362,289 @@ export async function addUniversityProgram(universityId: string, program: Univer
   if (updateError) throw toReadableUniversityError(updateError);
 
   return {
-    id: `legacy-${Date.now()}`,
+    id: `legacy-${universityId}-${newIndex}`,
     university_id: universityId,
+    legacy_storage_index: newIndex,
     ...program,
     is_active: true,
   } as UniversityProgram;
+}
+
+function programInputToRow(program: UniversityProgramInput, isActive?: boolean): Record<string, unknown> {
+  const row: Record<string, unknown> = {
+    program_name: String(program.program_name || '').trim(),
+    degree_type: String(program.degree_type || '').trim(),
+    duration: String(program.duration || '').trim(),
+    tuition_fee: String(program.tuition_fee || '').trim(),
+    minimum_sat_score: String(program.minimum_sat_score || '').trim(),
+    intake_semester: String(program.intake_semester || '').trim(),
+    eligibility_requirements: String(program.eligibility_requirements || '').trim(),
+    program_description: String(program.program_description || '').trim(),
+  };
+  if (typeof isActive === 'boolean') {
+    row.is_active = isActive;
+  }
+  return row;
+}
+
+function getLegacyProgramsArrayIndex(program: UniversityProgram, universityId: string): number | null {
+  if (typeof program.legacy_storage_index === 'number' && program.legacy_storage_index >= 0) {
+    return program.legacy_storage_index;
+  }
+  const prefix = `legacy-${universityId}-`;
+  if (program.id.startsWith(prefix)) {
+    const idx = parseInt(program.id.slice(prefix.length), 10);
+    return Number.isNaN(idx) ? null : idx;
+  }
+  if (/^legacy-\d+$/.test(program.id)) {
+    return typeof program.legacy_storage_index === 'number' ? program.legacy_storage_index : null;
+  }
+  return null;
+}
+
+async function fetchLegacyProgramsBucket(universityId: string): Promise<any[]> {
+  const { data: university, error } = await supabase
+    .from('universities')
+    .select('programs')
+    .eq('id', universityId)
+    .single();
+
+  if (error) throw toReadableUniversityError(error);
+  return Array.isArray(university?.programs) ? [...university.programs] : [];
+}
+
+function bucketEntryToProgramObject(raw: any): Record<string, unknown> {
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return typeof parsed === 'object' && parsed !== null ? { ...parsed } : { program_name: raw };
+    } catch {
+      return { program_name: raw };
+    }
+  }
+  if (raw && typeof raw === 'object') {
+    return { ...raw };
+  }
+  return { program_name: String(raw ?? 'Program') };
+}
+
+function mergedLegacyProgramFromObject(
+  base: Record<string, unknown>,
+  row: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...base,
+    program_name: row.program_name ?? base.program_name,
+    degree_type: row.degree_type ?? base.degree_type,
+    duration: row.duration ?? base.duration,
+    tuition_fee: row.tuition_fee ?? base.tuition_fee,
+    minimum_sat_score: row.minimum_sat_score ?? base.minimum_sat_score,
+    intake_semester: row.intake_semester ?? base.intake_semester,
+    eligibility_requirements: row.eligibility_requirements ?? base.eligibility_requirements,
+    program_description: row.program_description ?? base.program_description,
+    is_active:
+      typeof row.is_active === 'boolean' ? row.is_active : base.is_active ?? true,
+  };
+}
+
+async function persistLegacyProgramsBucket(universityId: string, bucket: any[]) {
+  const { error: updateError } = await supabase
+    .from('universities')
+    .update({ programs: bucket })
+    .eq('id', universityId);
+
+  if (updateError) throw toReadableUniversityError(updateError);
+}
+
+function legacyObjectToUniversityProgram(
+  universityId: string,
+  idx: number,
+  obj: Record<string, unknown>
+): UniversityProgram {
+  const is_active = typeof obj.is_active === 'boolean' ? obj.is_active : true;
+  return {
+    id: `legacy-${universityId}-${idx}`,
+    university_id: universityId,
+    legacy_storage_index: idx,
+    program_name: String(obj.program_name ?? 'Program'),
+    degree_type: String(obj.degree_type ?? '-'),
+    duration: String(obj.duration ?? '-'),
+    tuition_fee: String(obj.tuition_fee ?? '-'),
+    minimum_sat_score: String(obj.minimum_sat_score ?? ''),
+    intake_semester: String(obj.intake_semester ?? ''),
+    eligibility_requirements: String(obj.eligibility_requirements ?? ''),
+    program_description: String(obj.program_description ?? ''),
+    is_active,
+  };
+}
+
+export async function updateUniversityProgram(
+  universityId: string,
+  program: UniversityProgram,
+  updates: UniversityProgramInput & { is_active?: boolean }
+) {
+  const legacyIdx = getLegacyProgramsArrayIndex(program, universityId);
+
+  if (legacyIdx !== null) {
+    const bucket = await fetchLegacyProgramsBucket(universityId);
+    if (legacyIdx >= bucket.length) {
+      throw new Error('Program not found in legacy storage.');
+    }
+    const base = bucketEntryToProgramObject(bucket[legacyIdx]);
+    const merged = mergedLegacyProgramFromObject(base, {
+      ...programInputToRow(updates),
+      ...(typeof updates.is_active === 'boolean' ? { is_active: updates.is_active } : {}),
+    });
+    bucket[legacyIdx] = JSON.stringify(merged);
+    await persistLegacyProgramsBucket(universityId, bucket);
+    return legacyObjectToUniversityProgram(universityId, legacyIdx, merged);
+  }
+
+  const programId = program.id;
+  const row = programInputToRow(updates);
+  if (typeof updates.is_active === 'boolean') {
+    row.is_active = updates.is_active;
+  }
+
+  const tryUpdate = async (patch: Record<string, unknown>) => {
+    const { data, error } = await supabase
+      .from('university_programs')
+      .update(patch)
+      .eq('id', programId)
+      .eq('university_id', universityId)
+      .select('*')
+      .maybeSingle();
+
+    const singleError =
+      error ??
+      ((!data
+        ? ({
+            message:
+              'Update may have succeeded but no row was returned. Check Supabase UPDATE + SELECT policies for university_programs.',
+          } as any)
+        : null) as any);
+    return { data, error: singleError as any };
+  };
+
+  let { data, error } = await tryUpdate(row);
+
+  if (!error && data) {
+    return mapProgramRow(data);
+  }
+
+  if (error && isUndefinedColumnError(error, 'minimum_sat_score')) {
+    const { minimum_sat_score, ...rest } = row;
+    const trimmed = String(minimum_sat_score ?? '').trim();
+    const next = trimmed ? { ...rest, sat_score: trimmed } : { ...rest };
+    ({ data, error } = await tryUpdate(next));
+    if (!error && data) {
+      return mapProgramRow(data);
+    }
+  }
+
+  if (error && isUndefinedColumnError(error, 'tuition_fee')) {
+    const { tuition_fee, ...rest } = row;
+    const next = { ...rest, cost: tuition_fee };
+    ({ data, error } = await tryUpdate(next));
+    if (!error && data) {
+      return mapProgramRow(data);
+    }
+  }
+
+  const p = { ...row } as Record<string, unknown>;
+  if (typeof p.minimum_sat_score === 'string' && p.minimum_sat_score.trim()) {
+    p.sat_score = p.minimum_sat_score;
+    delete p.minimum_sat_score;
+  }
+  if (typeof p.tuition_fee === 'string') {
+    p.cost = p.tuition_fee;
+    delete p.tuition_fee;
+  }
+  ({ data, error } = await tryUpdate(p));
+  if (!error && data) {
+    return mapProgramRow(data);
+  }
+
+  if (!isMissingUniversityProgramsTableError(error)) {
+    throw toReadableUniversityError(error);
+  }
+
+  throw new Error('Cannot update programs: university_programs is missing and legacy row was not found.');
+}
+
+export async function deleteUniversityProgram(universityId: string, program: UniversityProgram) {
+  const legacyIdx = getLegacyProgramsArrayIndex(program, universityId);
+
+  if (legacyIdx !== null) {
+    const bucket = await fetchLegacyProgramsBucket(universityId);
+    if (legacyIdx >= bucket.length) {
+      throw new Error('Program not found.');
+    }
+    bucket.splice(legacyIdx, 1);
+    await persistLegacyProgramsBucket(universityId, bucket);
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from('university_programs')
+    .delete()
+    .eq('id', program.id)
+    .eq('university_id', universityId)
+    .select('id')
+    .maybeSingle();
+
+  if (error) throw toReadableUniversityError(error);
+
+  if (data?.id) {
+    return;
+  }
+
+  throw new Error('Delete failed: program not found or blocked by Row Level Security.');
+}
+
+export async function setUniversityProgramActive(
+  universityId: string,
+  program: UniversityProgram,
+  isActive: boolean
+) {
+  const legacyIdx = getLegacyProgramsArrayIndex(program, universityId);
+
+  if (legacyIdx !== null) {
+    const bucket = await fetchLegacyProgramsBucket(universityId);
+    if (legacyIdx >= bucket.length) {
+      throw new Error('Program not found.');
+    }
+    const base = bucketEntryToProgramObject(bucket[legacyIdx]);
+    const merged = { ...base, is_active: isActive };
+    bucket[legacyIdx] = JSON.stringify(merged);
+    await persistLegacyProgramsBucket(universityId, bucket);
+    return legacyObjectToUniversityProgram(universityId, legacyIdx, merged);
+  }
+
+  const patch: Record<string, unknown> = { is_active: isActive };
+
+  const { data, error } = await supabase
+    .from('university_programs')
+    .update(patch)
+    .eq('id', program.id)
+    .eq('university_id', universityId)
+    .select('*')
+    .maybeSingle();
+
+  const singleError =
+    error ??
+    ((!data
+      ? ({
+          message:
+            'Update may have succeeded but no row was returned. Check Supabase UPDATE + SELECT policies for university_programs.',
+        } as any)
+      : null) as any);
+
+  if (!singleError && data) {
+    return mapProgramRow(data);
+  }
+
+  throw toReadableUniversityError(singleError);
 }
 
 export async function getUniversities(search = '', country = '', city = '') {

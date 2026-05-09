@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react';
 import { Navbar } from '../components/Navbar';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
-import { Plus, Building2, BookOpen } from 'lucide-react';
+import { Plus, Building2, BookOpen, Pencil, Trash2 } from 'lucide-react';
 import {
   addUniversityProgram,
+  deleteUniversityProgram,
   getAdminUniversityContext,
   getProgramsByUniversity,
+  setUniversityProgramActive,
+  updateUniversityProgram,
   UniversityProgram,
   UniversityProgramInput,
 } from '../services/universityService';
@@ -22,8 +25,10 @@ export function UniversityAdminDashboardScreen({
   const [programs, setPrograms] = useState<UniversityProgram[]>([]);
   const [adminName, setAdminName] = useState('Admin User');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingProgram, setEditingProgram] = useState<UniversityProgram | null>(null);
   const [isSavingProgram, setIsSavingProgram] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [busyProgramId, setBusyProgramId] = useState<string | null>(null);
   const [programForm, setProgramForm] = useState<UniversityProgramInput>({
     program_name: '',
     degree_type: '',
@@ -48,15 +53,42 @@ export function UniversityAdminDashboardScreen({
       eligibility_requirements: '',
       program_description: '',
     });
+    setEditingProgram(null);
+  };
+
+  const openAddProgramModal = () => {
+    resetProgramForm();
+    setIsModalOpen(true);
+  };
+
+  const openEditProgramModal = (program: UniversityProgram) => {
+    setEditingProgram(program);
+    setProgramForm({
+      program_name: program.program_name,
+      degree_type: program.degree_type,
+      duration: program.duration,
+      tuition_fee: program.tuition_fee,
+      minimum_sat_score: program.minimum_sat_score,
+      intake_semester: program.intake_semester,
+      eligibility_requirements: program.eligibility_requirements,
+      program_description: program.program_description,
+    });
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    resetProgramForm();
   };
 
   const handleProgramInputChange = (field: keyof UniversityProgramInput, value: string) => {
     setProgramForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent;
     try {
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       const context = await getAdminUniversityContext();
       setAdminName(context.admin?.full_name || 'Admin User');
       setUniversity(context.university);
@@ -67,7 +99,7 @@ export function UniversityAdminDashboardScreen({
       setUniversity(null);
       setPrograms([]);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
@@ -75,7 +107,7 @@ export function UniversityAdminDashboardScreen({
     loadDashboardData();
   }, []);
 
-  const handleAddProgram = async () => {
+  const persistProgramModal = async () => {
     if (!university?.id) {
       alert('No university is linked to your admin account yet. Reload the page after your profile has a university, or contact support.');
       return;
@@ -104,15 +136,55 @@ export function UniversityAdminDashboardScreen({
         eligibility_requirements: programForm.eligibility_requirements.trim(),
         program_description: programForm.program_description.trim(),
       };
-      const createdProgram = await addUniversityProgram(university.id, trimmedForm);
-      setPrograms((prev) => [createdProgram, ...prev]);
-      setIsModalOpen(false);
-      resetProgramForm();
-      alert('Program details added successfully');
+
+      if (editingProgram) {
+        await updateUniversityProgram(university.id, editingProgram, {
+          ...trimmedForm,
+          is_active: editingProgram.is_active !== false,
+        });
+        await loadDashboardData({ silent: true });
+        alert('Program updated successfully');
+      } else {
+        await addUniversityProgram(university.id, trimmedForm);
+        await loadDashboardData({ silent: true });
+        alert('Program details added successfully');
+      }
+
+      closeModal();
     } catch (error: any) {
-      alert(error.message || 'Failed to add program details');
+      alert(error.message || 'Failed to save program');
     } finally {
       setIsSavingProgram(false);
+    }
+  };
+
+  const handleToggleProgramActive = async (program: UniversityProgram) => {
+    if (!university?.id) return;
+    const nextActive = program.is_active === false;
+    try {
+      setBusyProgramId(program.id);
+      await setUniversityProgramActive(university.id, program, nextActive);
+      await loadDashboardData({ silent: true });
+    } catch (error: any) {
+      alert(error.message || 'Failed to update program status');
+    } finally {
+      setBusyProgramId(null);
+    }
+  };
+
+  const handleDeleteProgram = async (program: UniversityProgram) => {
+    if (!university?.id) return;
+    const label = program.program_name || 'this program';
+    if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return;
+
+    try {
+      setBusyProgramId(program.id);
+      await deleteUniversityProgram(university.id, program);
+      await loadDashboardData({ silent: true });
+    } catch (error: any) {
+      alert(error.message || 'Failed to delete program');
+    } finally {
+      setBusyProgramId(null);
     }
   };
 
@@ -136,7 +208,7 @@ export function UniversityAdminDashboardScreen({
             </div>
             <Button
               variant="primary"
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => openAddProgramModal()}
               disabled={!university || isLoading}
             >
               <Plus size={20} className="mr-2" />
@@ -175,17 +247,66 @@ export function UniversityAdminDashboardScreen({
                       <th className="px-4 py-3 text-[#a0a0a0] text-sm text-left">Tuition Fee</th>
                       <th className="px-4 py-3 text-[#a0a0a0] text-sm text-left">Minimum SAT</th>
                       <th className="px-4 py-3 text-[#a0a0a0] text-sm text-left">Intake</th>
+                      <th className="px-4 py-3 text-[#a0a0a0] text-sm text-left">Status</th>
+                      <th className="px-4 py-3 text-[#a0a0a0] text-sm text-left">Visible</th>
+                      <th className="px-4 py-3 text-[#a0a0a0] text-sm text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {programs.map((program) => (
-                      <tr key={program.id} className="border-b border-[#2a2a2a]">
+                      <tr
+                        key={program.id}
+                        className={`border-b border-[#2a2a2a] ${program.is_active === false ? 'opacity-55' : ''}`}
+                      >
                         <td className="px-4 py-4 text-white">{program.program_name}</td>
                         <td className="px-4 py-4 text-white">{program.degree_type}</td>
                         <td className="px-4 py-4 text-white">{program.duration}</td>
                         <td className="px-4 py-4 text-white">{program.tuition_fee || '-'}</td>
                         <td className="px-4 py-4 text-white">{program.minimum_sat_score || '-'}</td>
                         <td className="px-4 py-4 text-white">{program.intake_semester || '-'}</td>
+                        <td className="px-4 py-4">
+                          <span
+                            className={
+                              program.is_active !== false ? 'text-[#31A6A8] text-sm' : 'text-[#8a6060] text-sm'
+                            }
+                          >
+                            {program.is_active !== false ? 'Active' : 'Disabled'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <label className="inline-flex cursor-pointer items-center gap-2 text-[#a0a0a0] text-sm select-none">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-[#3a3a3a] bg-[#2a2a2a] text-[#31A6A8] accent-[#31A6A8] disabled:opacity-40"
+                              checked={program.is_active !== false}
+                              disabled={busyProgramId === program.id}
+                              onChange={() => void handleToggleProgramActive(program)}
+                            />
+                            <span className="text-white text-xs">On</span>
+                          </label>
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              aria-label={`Edit ${program.program_name}`}
+                              disabled={busyProgramId === program.id}
+                              onClick={() => openEditProgramModal(program)}
+                              className="rounded-lg border border-[#3a3a3a] p-2 text-[#31A6A8] hover:bg-[#252525] disabled:opacity-40"
+                            >
+                              <Pencil size={18} />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Delete ${program.program_name}`}
+                              disabled={busyProgramId === program.id}
+                              onClick={() => void handleDeleteProgram(program)}
+                              className="rounded-lg border border-[#3a3a3a] p-2 text-[#e07a7a] hover:bg-[#252525] disabled:opacity-40"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -204,9 +325,13 @@ export function UniversityAdminDashboardScreen({
                 <BookOpen size={24} className="text-[#31A6A8]" />
               </div>
               <div>
-                <h2 className="text-white text-2xl">Add Program Details</h2>
+                <h2 className="text-white text-2xl">
+                  {editingProgram ? 'Edit Program Details' : 'Add Program Details'}
+                </h2>
                 <p className="text-[#a0a0a0] text-sm">
-                  Add programs for {university?.name || 'your university'}
+                  {editingProgram
+                    ? `Update "${editingProgram.program_name}"`
+                    : `Add programs for ${university?.name || 'your university'}`}
                 </p>
               </div>
             </div>
@@ -293,19 +418,18 @@ export function UniversityAdminDashboardScreen({
               <Button
                 variant="primary"
                 size="lg"
-                onClick={() => void handleAddProgram()}
+                onClick={() => void persistProgramModal()}
                 className="flex-1"
                 disabled={isSavingProgram}
               >
                 <Building2 size={18} className="mr-2" />
-                {isSavingProgram ? 'Saving...' : 'Save Program'}
+                {isSavingProgram ? 'Saving...' : editingProgram ? 'Update Program' : 'Save Program'}
               </Button>
               <Button
                 variant="secondary"
                 size="lg"
                 onClick={() => {
-                  setIsModalOpen(false);
-                  resetProgramForm();
+                  closeModal();
                 }}
                 className="flex-1"
               >

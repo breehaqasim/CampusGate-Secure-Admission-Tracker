@@ -5,6 +5,14 @@ export function normalizeEmail(email: string): string {
   return String(email || "").trim().toLowerCase();
 }
 
+/** Matches profile role storage variants (snake_case, casing) against portal constants. */
+function normalizeProfileRole(role: string | null | undefined): string {
+  return String(role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+}
+
 function isMissingColumnError(error: any, columnName: string) {
   const message = String(error?.message || "").toLowerCase();
   return message.includes("column") && message.includes(columnName.toLowerCase());
@@ -124,8 +132,62 @@ export async function requestUniversityAdmin(
   return data.user;
 }
 
-export async function loginUser(email: string, password: string) {
+// export async function loginUser(email: string, password: string) {
+//   const normalizedEmail = normalizeEmail(email);
+//   if (!normalizedEmail || !password) {
+//     throw new Error("Email and password are required.");
+//   }
+
+//   const { data, error } = await supabase.auth.signInWithPassword({
+//     email: normalizedEmail,
+//     password,
+//   });
+
+//   if (error) throw passThroughError(error);
+
+//   const { data: profile, error: profileError } = await supabase
+//     .from("profiles")
+//     .select("*")
+//     .eq("id", data.user.id)
+//     .maybeSingle();
+
+//   if (profileError) throw passThroughError(profileError);
+//   if (profile) return profile;
+
+//   const metadata = data.user.user_metadata || {};
+//   const role = metadata.role || "student";
+
+//   const { error: createProfileError } = await supabase.from("profiles").upsert(
+//     {
+//       id: data.user.id,
+//       full_name: metadata.full_name || "",
+//       email: data.user.email || normalizedEmail,
+//       role,
+//       university_name: metadata.university_name || null,
+//       approved: typeof metadata.approved === "boolean" ? metadata.approved : role === "student",
+//     },
+//     { onConflict: "id" }
+//   );
+
+//   if (createProfileError) throw passThroughError(createProfileError);
+
+//   const { data: newProfile, error: newProfileError } = await supabase
+//     .from("profiles")
+//     .select("*")
+//     .eq("id", data.user.id)
+//     .single();
+
+//   if (newProfileError) throw passThroughError(newProfileError);
+
+//   return newProfile;
+// }
+export async function loginUser(
+  email: string,
+  password: string,
+  expectedRole?: "student" | "university-admin" | "super-admin"
+) {
   const normalizedEmail = normalizeEmail(email);
+
   if (!normalizedEmail || !password) {
     throw new Error("Email and password are required.");
   }
@@ -137,41 +199,61 @@ export async function loginUser(email: string, password: string) {
 
   if (error) throw passThroughError(error);
 
-  const { data: profile, error: profileError } = await supabase
+  let { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("*")
     .eq("id", data.user.id)
     .maybeSingle();
 
-  if (profileError) throw passThroughError(profileError);
-  if (profile) return profile;
+  if (profileError) {
+    await supabase.auth.signOut();
+    throw passThroughError(profileError);
+  }
 
-  const metadata = data.user.user_metadata || {};
-  const role = metadata.role || "student";
+  if (!profile) {
+    const metadata = data.user.user_metadata || {};
+    const role = metadata.role || "student";
 
-  const { error: createProfileError } = await supabase.from("profiles").upsert(
-    {
-      id: data.user.id,
-      full_name: metadata.full_name || "",
-      email: data.user.email || normalizedEmail,
-      role,
-      university_name: metadata.university_name || null,
-      approved: typeof metadata.approved === "boolean" ? metadata.approved : role === "student",
-    },
-    { onConflict: "id" }
-  );
+    const { error: createProfileError } = await supabase.from("profiles").upsert(
+      {
+        id: data.user.id,
+        full_name: metadata.full_name || "",
+        email: data.user.email || normalizedEmail,
+        role,
+        university_name: metadata.university_name || null,
+        approved:
+          typeof metadata.approved === "boolean"
+            ? metadata.approved
+            : role === "student",
+      },
+      { onConflict: "id" }
+    );
 
-  if (createProfileError) throw passThroughError(createProfileError);
+    if (createProfileError) {
+      await supabase.auth.signOut();
+      throw passThroughError(createProfileError);
+    }
 
-  const { data: newProfile, error: newProfileError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", data.user.id)
-    .single();
+    const { data: newProfile, error: newProfileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", data.user.id)
+      .single();
 
-  if (newProfileError) throw passThroughError(newProfileError);
+    if (newProfileError) {
+      await supabase.auth.signOut();
+      throw passThroughError(newProfileError);
+    }
 
-  return newProfile;
+    profile = newProfile;
+  }
+
+  if (expectedRole && normalizeProfileRole(profile.role) !== normalizeProfileRole(expectedRole)) {
+    await supabase.auth.signOut();
+    throw new Error("Access denied. This account is not allowed to sign in from this portal.");
+  }
+
+  return profile;
 }
 
 export async function logoutUser() {

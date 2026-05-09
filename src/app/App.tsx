@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RoleSelectionScreen } from './screens/RoleSelectionScreen';
 import { StudentLoginScreen } from './screens/StudentLoginScreen';
 import { StudentRegistrationScreen } from './screens/StudentRegistrationScreen';
@@ -27,12 +27,25 @@ type Screen =
   | 'super-admin-login'
   | 'super-admin-dashboard';
 
+/** While on these screens, sign-in/sign-out events must not re-route globally — portals validate role locally. */
+const PORTAL_FLOW_SCREENS: Screen[] = [
+  'student-login',
+  'student-registration',
+  'university-admin-login',
+  'university-admin-registration',
+  'super-admin-login',
+];
+
 export default function App() {
   const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
   const [currentScreen, setCurrentScreen] = useState<Screen>('role-selection');
   const [selectedUniversityId, setSelectedUniversityId] = useState<string>('');
   const [favorites, setFavorites] = useState<any[]>([]);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
+  const currentScreenRef = useRef<Screen>(currentScreen);
+  useEffect(() => {
+    currentScreenRef.current = currentScreen;
+  }, [currentScreen]);
 
   const getScreenByProfile = (profile: any): Screen => {
     const role = String(profile?.role || '').toLowerCase();
@@ -107,6 +120,19 @@ export default function App() {
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!isMounted) return;
+      const portalScreen = currentScreenRef.current;
+      const onPortalFlow = PORTAL_FLOW_SCREENS.includes(portalScreen);
+
+      // Avoid racing the global router ahead of portal-specific login (wrong-role sign-in briefly showed student dashboard).
+      if (onPortalFlow && session?.user) {
+        return;
+      }
+
+      // After a failed portal attempt, loginUser signs out — keep user on the same login/register screen.
+      if (onPortalFlow && !session?.user) {
+        return;
+      }
+
       resolveSessionScreen(session?.user || null);
     });
 
