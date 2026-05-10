@@ -76,12 +76,12 @@ export function SetNewPasswordScreen({ onDone, onCancel }: SetNewPasswordScreenP
             size="lg"
             className="w-full mt-2"
             disabled={submitting}
-            onClick={() => void handleSubmit()}
+            onClick={handleSubmit}
           >
             {submitting ? 'Saving…' : 'Update password'}
           </Button>
 
-          <Button variant="secondary" size="lg" className="w-full" disabled={submitting} onClick={() => void onCancel()}>
+          <Button variant="secondary" size="lg" className="w-full" disabled={submitting} onClick={onCancel}>
             Cancel
           </Button>
         </div>
