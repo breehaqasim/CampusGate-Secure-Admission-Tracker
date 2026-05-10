@@ -29,6 +29,200 @@ interface UniversityDetailsScreenProps {
   isFavorite: boolean;
 }
 
+async function fetchStudentProfileName(): Promise<string> {
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) {
+      return 'Student';
+    }
+
+    const metadataName = String(authData.user.user_metadata?.full_name || '').trim();
+    const emailFallback = String(authData.user.email || '')
+      .split('@')[0]
+      ?.replace(/[._-]/g, ' ')
+      ?.trim();
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', authData.user.id)
+      .maybeSingle();
+
+    return (
+      String(profile?.full_name || '').trim() ||
+      metadataName ||
+      emailFallback ||
+      'Student'
+    );
+  } catch (e) {
+    console.error(e);
+    return 'Student';
+  }
+}
+
+type UniversityDetailLoadSetters = {
+  setIsLoading: (value: boolean) => void;
+  setLoadError: (value: string | null) => void;
+  setUniversityRow: (value: any | null) => void;
+  setPrograms: (value: UniversityProgram[]) => void;
+};
+
+async function runUniversityDetailsLoad(
+  universityId: string,
+  {
+    setIsLoading,
+    setLoadError,
+    setUniversityRow,
+    setPrograms,
+  }: UniversityDetailLoadSetters
+): Promise<void> {
+  if (!universityId.trim()) {
+    setLoadError('Missing university.');
+    setUniversityRow(null);
+    setPrograms([]);
+    setIsLoading(false);
+    return;
+  }
+
+  try {
+    setIsLoading(true);
+    setLoadError(null);
+
+    const [uni, programRows] = await Promise.all([
+      getUniversityById(universityId),
+      getProgramsByUniversity(universityId),
+    ]);
+
+    setUniversityRow(uni);
+    setPrograms(programRows);
+  } catch (error: any) {
+    console.error(error);
+    setLoadError(error?.message || 'Failed to load university');
+    setUniversityRow(null);
+    setPrograms([]);
+  } finally {
+    setIsLoading(false);
+  }
+}
+
+interface UniversityDetailsMainBodyProps {
+  isLoading: boolean;
+  loadError: string | null;
+  onRetryLoad: () => Promise<void>;
+  displayName: string;
+  locationLine: string | null;
+  visiblePrograms: UniversityProgram[];
+  onSaveToFavorites: () => void;
+  isFavorite: boolean;
+}
+
+function UniversityDetailsMainBody({
+  isLoading,
+  loadError,
+  onRetryLoad,
+  displayName,
+  locationLine,
+  visiblePrograms,
+  onSaveToFavorites,
+  isFavorite,
+}: UniversityDetailsMainBodyProps) {
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24">
+        <div className="mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[#31A6A8]/30 border-t-[#31A6A8]" />
+        <p className="text-sm text-[#8a8a8a]">Loading university profile…</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="rounded-2xl border border-[#403030] bg-[#1a1414] p-8 text-center">
+        <p className="text-[#e8a0a0]">{loadError}</p>
+        <Button variant="outline" size="sm" className="mt-6" onClick={onRetryLoad}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Hero */}
+      <header className="relative mb-12 overflow-hidden rounded-2xl border border-[#252525] bg-[#131313] shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
+        <div className="h-1.5 w-full bg-gradient-to-r from-[#31A6A8] via-[#3db9bb] to-[#268d8f]" />
+        <div className="px-6 py-8 sm:px-10 sm:py-10">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl lg:text-[2.5rem]">
+                {displayName}
+              </h1>
+              {locationLine ? (
+                <p className="mt-3 flex items-center gap-2 text-[#a3a3a3]">
+                  <MapPin size={18} className="shrink-0 text-[#31A6A8]" />
+                  <span>{locationLine}</span>
+                </p>
+              ) : (
+                <p className="mt-3 text-[#7a7a7a] text-sm">Location not specified in directory</p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <div className="rounded-xl border border-[#2e2e2e] bg-[#181818] px-4 py-3 text-center">
+                <p className="text-[11px] uppercase tracking-wider text-[#6a6a6a]">Programs listed</p>
+                <p className="text-2xl font-semibold tabular-nums text-white">{visiblePrograms.length}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Programs — full DB fields */}
+      <section className="mb-14">
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <BookOpen className="text-[#31A6A8]" size={22} />
+            <div>
+              <h2 className="text-lg font-semibold text-white sm:text-xl">Programs & admissions</h2>
+              <p className="mt-1 text-sm text-[#757575]">
+                Degree, duration, fees, scores, intake, eligibility, and descriptions come from your saved program
+                records.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {visiblePrograms.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-[#333] bg-[#141414] px-6 py-14 text-center">
+            <p className="text-[#8a8a8a]">No active programs are published for this university yet.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-8">
+            {visiblePrograms.map((program, idx) => (
+              <ProgramCard key={program.id} program={program} index={idx} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Actions */}
+      <div className="flex flex-col gap-4 border-t border-[#222] pt-10 sm:flex-row sm:items-center">
+        <Button variant="primary" size="lg" className="sm:min-w-[160px]">
+          Apply Now
+        </Button>
+        <Button
+          variant={isFavorite ? 'secondary' : 'outline'}
+          size="lg"
+          onClick={onSaveToFavorites}
+          className="sm:min-w-[200px]"
+        >
+          <Heart size={18} className={`mr-2 ${isFavorite ? 'fill-current' : ''}`} />
+          {isFavorite ? 'Saved to favorites' : 'Save to favorites'}
+        </Button>
+      </div>
+    </>
+  );
+}
+
 function showValue(value: string | undefined | null): string {
   const t = String(value ?? '').trim();
   return t.length > 0 ? t : '—';
@@ -141,66 +335,17 @@ export function UniversityDetailsScreen({
     [programs]
   );
 
-  const loadProfile = async () => {
-    try {
-      const { data: authData } = await supabase.auth.getUser();
-      if (!authData.user) return;
-
-      const metadataName = String(authData.user.user_metadata?.full_name || '').trim();
-      const emailFallback = String(authData.user.email || '')
-        .split('@')[0]
-        ?.replace(/[._-]/g, ' ')
-        ?.trim();
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('full_name')
-        .eq('id', authData.user.id)
-        .maybeSingle();
-
-      const resolved =
-        String(profile?.full_name || '').trim() ||
-        metadataName ||
-        emailFallback ||
-        'Student';
-      setStudentName(resolved);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   const loadDetails = useCallback(async () => {
-    if (!universityId.trim()) {
-      setLoadError('Missing university.');
-      setUniversityRow(null);
-      setPrograms([]);
-      setIsLoading(false);
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      setLoadError(null);
-
-      const [uni, programRows] = await Promise.all([
-        getUniversityById(universityId),
-        getProgramsByUniversity(universityId),
-      ]);
-
-      setUniversityRow(uni);
-      setPrograms(programRows);
-    } catch (error: any) {
-      console.error(error);
-      setLoadError(error?.message || 'Failed to load university');
-      setUniversityRow(null);
-      setPrograms([]);
-    } finally {
-      setIsLoading(false);
-    }
+    await runUniversityDetailsLoad(universityId, {
+      setIsLoading,
+      setLoadError,
+      setUniversityRow,
+      setPrograms,
+    });
   }, [universityId]);
 
   useEffect(() => {
-    void loadProfile();
+    fetchStudentProfileName().then(setStudentName);
   }, []);
 
   useEffect(() => {
@@ -231,92 +376,16 @@ export function UniversityDetailsScreen({
       <main className="relative mx-auto max-w-5xl px-4 pb-16 pt-6 sm:px-6 lg:px-8">
         <BackButton onClick={onBack} className="static mb-8" />
 
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-24">
-            <div className="mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[#31A6A8]/30 border-t-[#31A6A8]" />
-            <p className="text-sm text-[#8a8a8a]">Loading university profile…</p>
-          </div>
-        ) : loadError ? (
-          <div className="rounded-2xl border border-[#403030] bg-[#1a1414] p-8 text-center">
-            <p className="text-[#e8a0a0]">{loadError}</p>
-            <Button variant="outline" size="sm" className="mt-6" onClick={() => void loadDetails()}>
-              Try again
-            </Button>
-          </div>
-        ) : (
-          <>
-            {/* Hero */}
-            <header className="relative mb-12 overflow-hidden rounded-2xl border border-[#252525] bg-[#131313] shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
-              <div className="h-1.5 w-full bg-gradient-to-r from-[#31A6A8] via-[#3db9bb] to-[#268d8f]" />
-              <div className="px-6 py-8 sm:px-10 sm:py-10">
-                <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl lg:text-[2.5rem]">
-                      {displayName}
-                    </h1>
-                    {locationLine ? (
-                      <p className="mt-3 flex items-center gap-2 text-[#a3a3a3]">
-                        <MapPin size={18} className="shrink-0 text-[#31A6A8]" />
-                        <span>{locationLine}</span>
-                      </p>
-                    ) : (
-                      <p className="mt-3 text-[#7a7a7a] text-sm">Location not specified in directory</p>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    <div className="rounded-xl border border-[#2e2e2e] bg-[#181818] px-4 py-3 text-center">
-                      <p className="text-[11px] uppercase tracking-wider text-[#6a6a6a]">Programs listed</p>
-                      <p className="text-2xl font-semibold tabular-nums text-white">{visiblePrograms.length}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </header>
-
-            {/* Programs — full DB fields */}
-            <section className="mb-14">
-              <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <BookOpen className="text-[#31A6A8]" size={22} />
-                  <div>
-                    <h2 className="text-lg font-semibold text-white sm:text-xl">Programs & admissions</h2>
-                    <p className="mt-1 text-sm text-[#757575]">
-                      Degree, duration, fees, scores, intake, eligibility, and descriptions come from your saved program records.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {visiblePrograms.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-[#333] bg-[#141414] px-6 py-14 text-center">
-                  <p className="text-[#8a8a8a]">No active programs are published for this university yet.</p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-8">
-                  {visiblePrograms.map((program, idx) => (
-                    <ProgramCard key={program.id} program={program} index={idx} />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* Actions */}
-            <div className="flex flex-col gap-4 border-t border-[#222] pt-10 sm:flex-row sm:items-center">
-              <Button variant="primary" size="lg" className="sm:min-w-[160px]">
-                Apply Now
-              </Button>
-              <Button
-                variant={isFavorite ? 'secondary' : 'outline'}
-                size="lg"
-                onClick={handleSaveToFavorites}
-                className="sm:min-w-[200px]"
-              >
-                <Heart size={18} className={`mr-2 ${isFavorite ? 'fill-current' : ''}`} />
-                {isFavorite ? 'Saved to favorites' : 'Save to favorites'}
-              </Button>
-            </div>
-          </>
-        )}
+        <UniversityDetailsMainBody
+          isLoading={isLoading}
+          loadError={loadError}
+          onRetryLoad={loadDetails}
+          displayName={displayName}
+          locationLine={locationLine}
+          visiblePrograms={visiblePrograms}
+          onSaveToFavorites={handleSaveToFavorites}
+          isFavorite={isFavorite}
+        />
       </main>
     </div>
   );
