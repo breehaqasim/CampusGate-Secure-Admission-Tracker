@@ -5,6 +5,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   sonar:
     runs-on: ubuntu-latest
@@ -13,8 +16,89 @@ jobs:
         with:
           fetch-depth: 0
 
+      # SonarQube Cloud: only SONAR_TOKEN is required (no SONAR_HOST_URL).
       - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v3
+        uses: SonarSource/sonarqube-scan-action@v8
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # Pull analysis results from SonarCloud Web API so the run keeps a copy (artifacts + summary).
+      - name: Export SonarCloud report (API JSON)
+        if: success()
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          set -euo pipefail
+          KEY=$(grep '^sonar.projectKey=' sonar-project.properties | cut -d= -f2-)
+          HOST="https://sonarcloud.io"
+          mkdir -p sonar-report
+
+          curl -sS -u "${SONAR_TOKEN}:" \
+            "${HOST}/api/qualitygates/project_status?projectKey=${KEY}" \
+            -o sonar-report/quality-gate.json
+
+          METRICS="bugs,code_smells,vulnerabilities,security_hotspots,coverage,duplicated_lines_density,reliability_rating,security_rating,sqale_rating,maintainability_rating,alert_status,ncloc"
+          curl -sS -u "${SONAR_TOKEN}:" \
+            "${HOST}/api/measures/component?component=${KEY}&metricKeys=${METRICS}" \
+            -o sonar-report/measures.json
+
+          PAGE=1
+          while true; do
+            OUT="sonar-report/issues-page-${PAGE}.json"
+            curl -sS -u "${SONAR_TOKEN}:" \
+              "${HOST}/api/issues/search?componentKeys=${KEY}&ps=500&p=${PAGE}" \
+              -o "${OUT}"
+            COUNT=$(jq '.issues | length' "${OUT}")
+            TOTAL=$(jq '.total' "${OUT}")
+            if [ "${COUNT}" -eq 0 ]; then
+              rm -f "${OUT}"
+              break
+            fi
+            if [ "$((PAGE * 500))" -ge "${TOTAL}" ]; then
+              break
+            fi
+            PAGE=$((PAGE + 1))
+            if [ "${PAGE}" -gt 200 ]; then
+              echo "Issue pagination stopped at page 200 (safety cap)."
+              break
+            fi
+          done
+
+          if compgen -G "sonar-report/issues-page-*.json" > /dev/null; then
+            jq -s '{
+              total: (.[0].total // 0),
+              paging: { pageSize: 500, total: (.[0].total // 0) },
+              issues: [.[].issues[]],
+              components: (.[0].components // []),
+              facets: (.[0].facets // [])
+            }' sonar-report/issues-page-*.json > sonar-report/issues-full.json
+          else
+            echo '{"total":0,"issues":[],"components":[]}' > sonar-report/issues-full.json
+          fi
+
+      - name: Sonar report — job summary
+        if: success()
+        run: |
+          set -euo pipefail
+          KEY=$(grep '^sonar.projectKey=' sonar-project.properties | cut -d= -f2-)
+          DASHBOARD="https://sonarcloud.io/project/overview?id=${KEY}"
+          QG=$(jq -r '.projectStatus.status // "UNKNOWN"' sonar-report/quality-gate.json)
+
+          {
+            echo "## SonarCloud"
+            echo ""
+            echo "Quality gate: **${QG}**"
+            echo ""
+            echo "- [Project dashboard](${DASHBOARD})"
+            echo ""
+            echo "Artifacts for this run contain \`quality-gate.json\`, \`measures.json\`, \`issues-full.json\`, and raw issue pages."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Sonar report artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarcloud-report
+          path: sonar-report/
+          if-no-files-found: warn
