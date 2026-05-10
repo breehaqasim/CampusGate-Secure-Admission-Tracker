@@ -281,58 +281,30 @@ export async function getProgramsByUniversity(universityId: string) {
     .filter(Boolean);
 }
 
-export async function addUniversityProgram(universityId: string, program: UniversityProgramInput) {
-  const payload: Record<string, unknown> = {
-    university_id: universityId,
-    ...program,
-    is_active: true,
-  };
+async function tryInsertUniversityProgram(row: Record<string, unknown>): Promise<{ data: any; error: any }> {
+  const { data, error } = await supabase
+    .from('university_programs')
+    .insert(row)
+    .select('*')
+    .maybeSingle();
 
-  const tryInsert = async (row: Record<string, unknown>) => {
-    const { data, error } = await supabase
-      .from('university_programs')
-      .insert(row)
-      .select('*')
-      .maybeSingle();
+  const singleError =
+    error ??
+    ((!data
+      ? ({
+          message:
+            'Save may have succeeded but no row was returned. In Supabase, allow INSERT and SELECT on university_programs for your role (RETURNING rows), or use the legacy universities.programs column.',
+        } as any)
+      : null) as any);
+  return { data, error: singleError as any };
+}
 
-    const singleError =
-      error ??
-      ((!data
-        ? ({
-            message:
-              'Save may have succeeded but no row was returned. In Supabase, allow INSERT and SELECT on university_programs for your role (RETURNING rows), or use the legacy universities.programs column.',
-          } as any)
-        : null) as any);
-    return { data, error: singleError as any };
-  };
+function mappedProgramInsertResult(result: { data: any; error: any }): UniversityProgram | null {
+  if (!result.error && result.data) return mapProgramRow(result.data);
+  return null;
+}
 
-  let { data, error } = await tryInsert(payload);
-
-  if (!error && data) {
-    return mapProgramRow(data);
-  }
-
-  // Common schema aliases (local Supabase setups differ).
-  if (error && isUndefinedColumnError(error, 'minimum_sat_score')) {
-    const { minimum_sat_score, ...rest } = payload;
-    const trimmed = String(minimum_sat_score ?? '').trim();
-    const next = trimmed ? { ...rest, sat_score: trimmed } : { ...rest };
-    ({ data, error } = await tryInsert(next));
-    if (!error && data) {
-      return mapProgramRow(data);
-    }
-  }
-
-  if (error && isUndefinedColumnError(error, 'tuition_fee')) {
-    const { tuition_fee, ...rest } = payload;
-    const next = { ...rest, cost: tuition_fee };
-    ({ data, error } = await tryInsert(next));
-    if (!error && data) {
-      return mapProgramRow(data);
-    }
-  }
-
-  // Both tuition_fee & minimum_sat_score wrong on same insert — try cost + sat_score.
+function programPayloadWithCostAndSatAliases(payload: Record<string, unknown>): Record<string, unknown> {
   const p = { ...payload } as Record<string, unknown>;
   if (typeof p.minimum_sat_score === 'string' && p.minimum_sat_score.trim()) {
     p.sat_score = p.minimum_sat_score;
@@ -342,18 +314,61 @@ export async function addUniversityProgram(universityId: string, program: Univer
     p.cost = p.tuition_fee;
     delete p.tuition_fee;
   }
-  ({ data, error } = await tryInsert(p));
-  if (!error && data) {
-    return mapProgramRow(data);
+  return p;
+}
+
+async function retryInsertWithMinimumSatAlias(
+  payload: Record<string, unknown>,
+  lastError: any
+): Promise<{ data: any; error: any } | null> {
+  if (!lastError || !isUndefinedColumnError(lastError, 'minimum_sat_score')) return null;
+  const { minimum_sat_score, ...rest } = payload;
+  const trimmed = String(minimum_sat_score ?? '').trim();
+  const row = trimmed ? { ...rest, sat_score: trimmed } : { ...rest };
+  return tryInsertUniversityProgram(row);
+}
+
+async function retryInsertWithTuitionFeeAlias(
+  payload: Record<string, unknown>,
+  lastError: any
+): Promise<{ data: any; error: any } | null> {
+  if (!lastError || !isUndefinedColumnError(lastError, 'tuition_fee')) return null;
+  const { tuition_fee, ...rest } = payload;
+  return tryInsertUniversityProgram({ ...rest, cost: tuition_fee });
+}
+
+async function insertProgramViaUniversityProgramsTable(
+  payload: Record<string, unknown>
+): Promise<UniversityProgram | { error: any }> {
+  let result = await tryInsertUniversityProgram(payload);
+  let mapped = mappedProgramInsertResult(result);
+  if (mapped) return mapped;
+
+  const afterSat = await retryInsertWithMinimumSatAlias(payload, result.error);
+  if (afterSat) {
+    result = afterSat;
+    mapped = mappedProgramInsertResult(result);
+    if (mapped) return mapped;
   }
 
-  const lastError = error;
-
-  if (!isMissingUniversityProgramsTableError(lastError)) {
-    throw toReadableUniversityError(lastError);
+  const afterTuition = await retryInsertWithTuitionFeeAlias(payload, result.error);
+  if (afterTuition) {
+    result = afterTuition;
+    mapped = mappedProgramInsertResult(result);
+    if (mapped) return mapped;
   }
 
-  // Fallback for legacy schema: persist serialized program objects in universities.programs.
+  result = await tryInsertUniversityProgram(programPayloadWithCostAndSatAliases(payload));
+  mapped = mappedProgramInsertResult(result);
+  if (mapped) return mapped;
+
+  return { error: result.error };
+}
+
+async function addProgramViaLegacyUniversitiesProgramsColumn(
+  universityId: string,
+  program: UniversityProgramInput
+): Promise<UniversityProgram> {
   const { data: university, error: universityError } = await supabase
     .from('universities')
     .select('programs')
@@ -380,6 +395,23 @@ export async function addUniversityProgram(universityId: string, program: Univer
     ...program,
     is_active: true,
   } as UniversityProgram;
+}
+
+export async function addUniversityProgram(universityId: string, program: UniversityProgramInput) {
+  const payload: Record<string, unknown> = {
+    university_id: universityId,
+    ...program,
+    is_active: true,
+  };
+
+  const outcome = await insertProgramViaUniversityProgramsTable(payload);
+  if (!('error' in outcome)) return outcome;
+
+  if (!isMissingUniversityProgramsTableError(outcome.error)) {
+    throw toReadableUniversityError(outcome.error);
+  }
+
+  return addProgramViaLegacyUniversitiesProgramsColumn(universityId, program);
 }
 
 function programInputToRow(program: UniversityProgramInput, isActive?: boolean): Record<string, unknown> {
