@@ -89,49 +89,43 @@ export interface UniversityProgram extends UniversityProgramInput {
   legacy_storage_index?: number;
 }
 
-export async function getAdminUniversityContext() {
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-  if (authError) throw authError;
-
-  const userId = authData.user?.id;
-  if (!userId) throw new Error('No authenticated user found');
-
-  let profile: any = null;
-  let hasUniversityIdColumn = true;
-
+async function fetchUniversityAdminProfile(userId: string): Promise<{
+  profile: any;
+  hasUniversityIdColumn: boolean;
+}> {
   const profileWithUniversityId = await supabase
     .from('profiles')
     .select('id, full_name, role, university_id, university_name')
     .eq('id', userId)
     .single();
 
-  if (profileWithUniversityId.error) {
-    if (isMissingUniversityIdColumnError(profileWithUniversityId.error)) {
-      hasUniversityIdColumn = false;
-      const profileWithoutUniversityId = await supabase
-        .from('profiles')
-        .select('id, full_name, role, university_name')
-        .eq('id', userId)
-        .single();
-
-      if (profileWithoutUniversityId.error) {
-        throw toReadableUniversityError(profileWithoutUniversityId.error);
-      }
-
-      profile = profileWithoutUniversityId.data;
-    } else {
-      throw toReadableUniversityError(profileWithUniversityId.error);
-    }
-  } else {
-    profile = profileWithUniversityId.data;
+  if (!profileWithUniversityId.error) {
+    return { profile: profileWithUniversityId.data, hasUniversityIdColumn: true };
   }
 
-  if (profile?.role !== 'university-admin') {
-    throw new Error('Access denied. Only university admins can access this dashboard.');
+  const err = profileWithUniversityId.error;
+  if (!isMissingUniversityIdColumnError(err)) {
+    throw toReadableUniversityError(err);
   }
 
-  let university: any = null;
+  const profileWithoutUniversityId = await supabase
+    .from('profiles')
+    .select('id, full_name, role, university_name')
+    .eq('id', userId)
+    .single();
 
+  if (profileWithoutUniversityId.error) {
+    throw toReadableUniversityError(profileWithoutUniversityId.error);
+  }
+
+  return { profile: profileWithoutUniversityId.data, hasUniversityIdColumn: false };
+}
+
+/** Resolve university from profile link (id or name); backfill profile.university_id when applicable. */
+async function resolveUniversityFromProfile(
+  profile: any,
+  hasUniversityIdColumn: boolean
+): Promise<any | null> {
   if (profile?.university_id) {
     const { data: uniById, error: uniByIdError } = await supabase
       .from('universities')
@@ -140,42 +134,60 @@ export async function getAdminUniversityContext() {
       .maybeSingle();
 
     if (uniByIdError) throw toReadableUniversityError(uniByIdError);
-    university = uniById;
-  } else if (profile?.university_name) {
-    const { data: uniByName, error: uniByNameError } = await supabase
-      .from('universities')
-      .select('*')
-      .ilike('name', profile.university_name)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (uniByNameError) throw toReadableUniversityError(uniByNameError);
-    university = uniByName;
-
-    // Backfill link when a matching university exists.
-    if (hasUniversityIdColumn && uniByName?.id) {
-      await supabase
-        .from('profiles')
-        .update({ university_id: uniByName.id })
-        .eq('id', profile.id);
-    }
+    return uniById;
   }
 
-  if (!university) {
-    // Legacy fallback: infer linked university from creator relationship.
-    // This supports older data where profiles are not linked via university_id/university_name.
-    const { data: uniByCreator, error: uniByCreatorError } = await supabase
-      .from('universities')
-      .select('*')
-      .eq('created_by', userId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (uniByCreatorError) throw toReadableUniversityError(uniByCreatorError);
-    university = uniByCreator;
+  if (!profile?.university_name) {
+    return null;
   }
+
+  const { data: uniByName, error: uniByNameError } = await supabase
+    .from('universities')
+    .select('*')
+    .ilike('name', profile.university_name)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (uniByNameError) throw toReadableUniversityError(uniByNameError);
+
+  if (hasUniversityIdColumn && uniByName?.id) {
+    await supabase.from('profiles').update({ university_id: uniByName.id }).eq('id', profile.id);
+  }
+
+  return uniByName;
+}
+
+/** Legacy fallback: infer linked university from creator relationship. */
+async function fetchUniversityByCreator(userId: string): Promise<any | null> {
+  const { data: uniByCreator, error: uniByCreatorError } = await supabase
+    .from('universities')
+    .select('*')
+    .eq('created_by', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (uniByCreatorError) throw toReadableUniversityError(uniByCreatorError);
+  return uniByCreator;
+}
+
+export async function getAdminUniversityContext() {
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError) throw authError;
+
+  const userId = authData.user?.id;
+  if (!userId) throw new Error('No authenticated user found');
+
+  const { profile, hasUniversityIdColumn } = await fetchUniversityAdminProfile(userId);
+
+  if (profile?.role !== 'university-admin') {
+    throw new Error('Access denied. Only university admins can access this dashboard.');
+  }
+
+  let university =
+    (await resolveUniversityFromProfile(profile, hasUniversityIdColumn)) ??
+    (await fetchUniversityByCreator(userId));
 
   if (!university) {
     throw new Error(
