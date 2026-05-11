@@ -1,4 +1,4 @@
-name: Generate SBOM with Syft
+name: SCA — Syft SBOMs
 
 on:
   push:
@@ -6,23 +6,46 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+env:
+  SYFT_VERSION: v1.24.0
+
 jobs:
-  sbom:
+  syft-sbom:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Generate SBOM
-        uses: anchore/sbom-action@v0
-        with:
-          path: .
-          format: cyclonedx-json
-          output-file: sbom.cdx.json
+      - name: Install Syft
+        run: |
+          set -euo pipefail
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin" "${SYFT_VERSION}"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          syft version
 
-      - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+      - name: SBOM — folder (CycloneDX JSON)
+        run: |
+          set -euo pipefail
+          syft dir:. -o cyclonedx-json > sbom.json
+
+      - name: Docker build
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg VITE_SUPABASE_URL=https://placeholder.supabase.co \
+            --build-arg VITE_SUPABASE_ANON_KEY=placeholder-for-ci-sbom-only \
+            -t campusgate:ci .
+
+      - name: SBOM — Docker image (CycloneDX JSON)
+        run: |
+          set -euo pipefail
+          syft docker:campusgate:ci -o cyclonedx-json > sbom-dockerimage.json
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: campusgate-sbom
-          path: sbom.cdx.json
+          name: dependency-track-sboms
+          path: |
+            sbom.json
+            sbom-dockerimage.json
