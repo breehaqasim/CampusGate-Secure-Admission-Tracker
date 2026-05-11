@@ -522,6 +522,124 @@ function legacyObjectToUniversityProgram(
   };
 }
 
+async function updateLegacyUniversityProgram(
+  universityId: string,
+  legacyIdx: number,
+  updates: UniversityProgramInput & { is_active?: boolean }
+): Promise<UniversityProgram> {
+  const bucket = await fetchLegacyProgramsBucket(universityId);
+  if (legacyIdx >= bucket.length) {
+    throw new Error('Program not found in legacy storage.');
+  }
+
+  const base = bucketEntryToProgramObject(bucket[legacyIdx]);
+  const merged = mergedLegacyProgramFromObject(base, programInputToRow(updates, updates.is_active));
+
+  bucket[legacyIdx] = JSON.stringify(merged);
+  await persistLegacyProgramsBucket(universityId, bucket);
+  return legacyObjectToUniversityProgram(universityId, legacyIdx, merged);
+}
+
+async function tryUpdateUniversityProgram(
+  universityId: string,
+  programId: string,
+  patch: Record<string, unknown>
+): Promise<{ data: any; error: any }> {
+  const { data, error } = await supabase
+    .from('university_programs')
+    .update(patch)
+    .eq('id', programId)
+    .eq('university_id', universityId)
+    .select('*')
+    .maybeSingle();
+
+  const singleError =
+    error ??
+    ((!data
+      ? ({
+          message:
+            'Update may have succeeded but no row was returned. Check Supabase UPDATE + SELECT policies for university_programs.',
+        } as any)
+      : null) as any);
+
+  return { data, error: singleError as any };
+}
+
+function mappedProgramUpdateResult(result: { data: any; error: any }): UniversityProgram | null {
+  if (!result.error && result.data) return mapProgramRow(result.data);
+  return null;
+}
+
+async function retryUpdateWithMinimumSatAlias(
+  universityId: string,
+  programId: string,
+  payload: Record<string, unknown>,
+  lastError: any
+): Promise<{ data: any; error: any } | null> {
+  if (!lastError || !isUndefinedColumnError(lastError, 'minimum_sat_score')) return null;
+
+  const { minimum_sat_score, ...rest } = payload;
+  const trimmed = String(minimum_sat_score ?? '').trim();
+  const row = trimmed ? { ...rest, sat_score: trimmed } : { ...rest };
+  return tryUpdateUniversityProgram(universityId, programId, row);
+}
+
+async function retryUpdateWithTuitionFeeAlias(
+  universityId: string,
+  programId: string,
+  payload: Record<string, unknown>,
+  lastError: any
+): Promise<{ data: any; error: any } | null> {
+  if (!lastError || !isUndefinedColumnError(lastError, 'tuition_fee')) return null;
+
+  const { tuition_fee, ...rest } = payload;
+  return tryUpdateUniversityProgram(universityId, programId, { ...rest, cost: tuition_fee });
+}
+
+async function updateProgramViaUniversityProgramsTable(
+  universityId: string,
+  programId: string,
+  row: Record<string, unknown>
+): Promise<UniversityProgram | { error: any }> {
+  let result = await tryUpdateUniversityProgram(universityId, programId, row);
+  let mapped = mappedProgramUpdateResult(result);
+  if (mapped) return mapped;
+
+  const afterSat = await retryUpdateWithMinimumSatAlias(
+    universityId,
+    programId,
+    row,
+    result.error
+  );
+  if (afterSat) {
+    result = afterSat;
+    mapped = mappedProgramUpdateResult(result);
+    if (mapped) return mapped;
+  }
+
+  const afterTuition = await retryUpdateWithTuitionFeeAlias(
+    universityId,
+    programId,
+    row,
+    result.error
+  );
+  if (afterTuition) {
+    result = afterTuition;
+    mapped = mappedProgramUpdateResult(result);
+    if (mapped) return mapped;
+  }
+
+  result = await tryUpdateUniversityProgram(
+    universityId,
+    programId,
+    programPayloadWithCostAndSatAliases(row)
+  );
+  mapped = mappedProgramUpdateResult(result);
+  if (mapped) return mapped;
+
+  return { error: result.error };
+}
+
 export async function updateUniversityProgram(
   universityId: string,
   program: UniversityProgram,
@@ -530,85 +648,15 @@ export async function updateUniversityProgram(
   const legacyIdx = getLegacyProgramsArrayIndex(program, universityId);
 
   if (legacyIdx !== null) {
-    const bucket = await fetchLegacyProgramsBucket(universityId);
-    if (legacyIdx >= bucket.length) {
-      throw new Error('Program not found in legacy storage.');
-    }
-    const base = bucketEntryToProgramObject(bucket[legacyIdx]);
-    const merged = mergedLegacyProgramFromObject(base, {
-      ...programInputToRow(updates),
-      ...(typeof updates.is_active === 'boolean' ? { is_active: updates.is_active } : {}),
-    });
-    bucket[legacyIdx] = JSON.stringify(merged);
-    await persistLegacyProgramsBucket(universityId, bucket);
-    return legacyObjectToUniversityProgram(universityId, legacyIdx, merged);
+    return updateLegacyUniversityProgram(universityId, legacyIdx, updates);
   }
 
-  const programId = program.id;
-  const row = programInputToRow(updates);
-  if (typeof updates.is_active === 'boolean') {
-    row.is_active = updates.is_active;
-  }
+  const row = programInputToRow(updates, updates.is_active);
+  const outcome = await updateProgramViaUniversityProgramsTable(universityId, program.id, row);
 
-  const tryUpdate = async (patch: Record<string, unknown>) => {
-    const { data, error } = await supabase
-      .from('university_programs')
-      .update(patch)
-      .eq('id', programId)
-      .eq('university_id', universityId)
-      .select('*')
-      .maybeSingle();
+  if (!('error' in outcome)) return outcome;
 
-    const singleError =
-      error ??
-      ((!data
-        ? ({
-            message:
-              'Update may have succeeded but no row was returned. Check Supabase UPDATE + SELECT policies for university_programs.',
-          } as any)
-        : null) as any);
-    return { data, error: singleError as any };
-  };
-
-  let { data, error } = await tryUpdate(row);
-
-  if (!error && data) {
-    return mapProgramRow(data);
-  }
-
-  if (error && isUndefinedColumnError(error, 'minimum_sat_score')) {
-    const { minimum_sat_score, ...rest } = row;
-    const trimmed = String(minimum_sat_score ?? '').trim();
-    const next = trimmed ? { ...rest, sat_score: trimmed } : { ...rest };
-    ({ data, error } = await tryUpdate(next));
-    if (!error && data) {
-      return mapProgramRow(data);
-    }
-  }
-
-  if (error && isUndefinedColumnError(error, 'tuition_fee')) {
-    const { tuition_fee, ...rest } = row;
-    const next = { ...rest, cost: tuition_fee };
-    ({ data, error } = await tryUpdate(next));
-    if (!error && data) {
-      return mapProgramRow(data);
-    }
-  }
-
-  const p = { ...row } as Record<string, unknown>;
-  if (typeof p.minimum_sat_score === 'string' && p.minimum_sat_score.trim()) {
-    p.sat_score = p.minimum_sat_score;
-    delete p.minimum_sat_score;
-  }
-  if (typeof p.tuition_fee === 'string') {
-    p.cost = p.tuition_fee;
-    delete p.tuition_fee;
-  }
-  ({ data, error } = await tryUpdate(p));
-  if (!error && data) {
-    return mapProgramRow(data);
-  }
-
+  const { error } = outcome;
   if (!isMissingUniversityProgramsTableError(error)) {
     throw toReadableUniversityError(error);
   }
