@@ -765,41 +765,49 @@ export async function getUniversityById(id: string) {
   return data;
 }
 
+const UNIVERSITY_ADMIN_CREATE_ERROR =
+  'University admins cannot create additional universities. Use Add Details to manage programs.';
+
+async function fetchProfileRoleWithoutUniversityId(userId: string) {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (error) throw toReadableUniversityError(error);
+  return data?.role;
+}
+
+async function ensureUserCanCreateUniversity(userId: string) {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('role, university_id')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (!error) {
+    if (data?.university_id) throw new Error(UNIVERSITY_ADMIN_CREATE_ERROR);
+    return;
+  }
+
+  if (!isMissingUniversityIdColumnError(error)) {
+    throw toReadableUniversityError(error);
+  }
+
+  const role = await fetchProfileRoleWithoutUniversityId(userId);
+  if (role === 'university-admin') throw new Error(UNIVERSITY_ADMIN_CREATE_ERROR);
+}
+
 export async function addUniversity(university: any) {
   const { data: sessionData } = await supabase.auth.getUser();
-  if (sessionData.user?.id) {
-    const profileWithUniversityId = await supabase
-      .from('profiles')
-      .select('role, university_id')
-      .eq('id', sessionData.user.id)
-      .maybeSingle();
+  const userId = sessionData.user?.id;
 
-    if (profileWithUniversityId.error) {
-      if (!isMissingUniversityIdColumnError(profileWithUniversityId.error)) {
-        throw toReadableUniversityError(profileWithUniversityId.error);
-      }
-
-      const profileWithoutUniversityId = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', sessionData.user.id)
-        .maybeSingle();
-
-      if (profileWithoutUniversityId.error) {
-        throw toReadableUniversityError(profileWithoutUniversityId.error);
-      }
-
-      if (profileWithoutUniversityId.data?.role === 'university-admin') {
-        throw new Error('University admins cannot create additional universities. Use Add Details to manage programs.');
-      }
-    } else if (profileWithUniversityId.data?.university_id) {
-      throw new Error('University admins cannot create additional universities. Use Add Details to manage programs.');
-    }
-  }
+  if (userId) await ensureUserCanCreateUniversity(userId);
 
   const payload = {
     ...university,
-    created_by: sessionData.user?.id,
+    created_by: userId,
   };
 
   const { error } = await supabase.from('universities').insert(payload);
