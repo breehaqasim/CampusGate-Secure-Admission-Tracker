@@ -64,9 +64,11 @@ jobs:
           docker run --rm --network host \
             -w /zap/wrk \
             -v "${GITHUB_WORKSPACE}/dast-reports:/zap/wrk:rw" \
+            -v "${GITHUB_WORKSPACE}/dast/zap-baseline-rules.conf:/zap/cfg/zap-baseline-rules.conf:ro" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
               -t http://127.0.0.1:8080/ \
+              -c /zap/cfg/zap-baseline-rules.conf \
               -J report.json \
               -r report.html
           ZAP_EXIT=$?
