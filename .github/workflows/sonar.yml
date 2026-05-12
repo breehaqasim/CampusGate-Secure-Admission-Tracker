@@ -68,7 +68,7 @@ jobs:
           if compgen -G "sonar-report/issues-page-*.json" > /dev/null; then
             jq -s '{
               total: (.[0].total // 0),
-              paging: { pageSize: 500, total: (.[0].total // 0) },
+              paging: { pageSize: 500, 
               issues: [.[].issues[]],
               components: (.[0].components // []),
               facets: (.[0].facets // [])
