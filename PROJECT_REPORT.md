@@ -134,9 +134,10 @@ Risk prioritisation was performed using a qualitative risk matrix combined with 
 | TM-08 | Brute force attacks against authentication endpoints | Medium | Medium | Medium | DAST |
 | TM-09 | Exposure of sensitive configuration or public API endpoints | Low | Medium | Medium | SAST + DAST |
 
-### 3.5 Threat model updates post-remediation LEFT FOR NAMEL
+### 3.5 Threat model updates post-remediation
 
-[Paragraph: what changed after fixes — e.g. reduced exposure from headers, removed packages from image, tightened RBAC. Attach updated diagram if trust boundaries moved.]
+Post-remediation, the threat model was updated to reflect the newly implemented security controls, hardened trust boundaries, and reduced attack surface of the system. The Authentication Module was strengthened by introducing strong password validation, login rate limiting, session token validation, RBAC enforcement, and portal access enforcement to prevent unauthorized access, brute-force attacks, and privilege escalation. Trust boundaries were refined around the authentication and database interaction layers to better represent secure credential verification and session management with Supabase. The frontend exposure surface was reduced by introducing a hardened nginx security layer with Content Security Policy (CSP), anti-clickjacking protections, Cross-Origin policies (COOP, COEP, CORP), `X-Content-Type-Options`, `Permissions-Policy`, and hidden server banners. The container attack surface was also minimized by removing unnecessary packages and vulnerable image-processing components such as `libtiff` and unused nginx modules from the Docker image. Additionally, the updated threat model now includes DevSecOps security controls within the CI/CD pipeline, representing automated SAST, SCA, and DAST validation with quality gates to continuously identify and block high-risk vulnerabilities before deployment.
+
 
 ---
 
