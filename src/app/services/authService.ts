@@ -1,5 +1,10 @@
 import { supabase } from "../../lib/supabase";
 import { validateStrongPassword } from "./passwordPolicy";
+import {
+  assertLoginRateLimitAllows,
+  clearLoginRateLimit,
+  recordLoginRateLimitFailure,
+} from "./loginRateLimit";
 
 /** True when the URL hash is from a Supabase password recovery email (before client strips it). */
 export function isPasswordRecoveryHash(): boolean {
@@ -124,11 +129,16 @@ export async function loginWithPasswordAndSendEmailOtp(
     throw new Error("Email and password are required.");
   }
 
+  assertLoginRateLimitAllows(normalizedEmail);
+
   const { data, error } = await supabase.auth.signInWithPassword({
     email: normalizedEmail,
     password,
   });
-  if (error) throw passThroughError(error);
+  if (error) {
+    recordLoginRateLimitFailure(normalizedEmail);
+    throw passThroughError(error);
+  }
 
   const profile = await loadProfileAfterSignIn(data.user.id, normalizedEmail, data.user);
   await enforcePortalAccess(profile, expectedRole);
@@ -143,6 +153,8 @@ export async function loginWithPasswordAndSendEmailOtp(
     },
   });
   if (otpError) throw passThroughError(otpError);
+
+  clearLoginRateLimit(normalizedEmail);
 }
 
 /** Step 2: verify email OTP and restore session. */
@@ -324,15 +336,21 @@ export async function loginUser(
     throw new Error("Email and password are required.");
   }
 
+  assertLoginRateLimitAllows(normalizedEmail);
+
   const { data, error } = await supabase.auth.signInWithPassword({
     email: normalizedEmail,
     password,
   });
 
-  if (error) throw passThroughError(error);
+  if (error) {
+    recordLoginRateLimitFailure(normalizedEmail);
+    throw passThroughError(error);
+  }
 
   const profile = await loadProfileAfterSignIn(data.user.id, normalizedEmail, data.user);
   await enforcePortalAccess(profile, expectedRole);
+  clearLoginRateLimit(normalizedEmail);
   return profile;
 }
 
