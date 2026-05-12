@@ -54,10 +54,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dast-reports
-          # --network host: ZAP container can reach nginx on the runner at 127.0.0.1:8080
+          # ZAP runs as uid 1000 (user "zap"); the runner often owns this dir as uid 1001 with 0755.
+          # Without +w for others, ZAP cannot create report.html / report.json on the bind mount → empty artifact.
+          chmod a+rwx dast-reports
+          # --network host: ZAP can reach nginx on the runner at 127.0.0.1:8080
+          # Mount host dir to /zap/wrk (ZAP baseline writes reports under base_dir /zap/wrk/)
+          # -w /zap/wrk: cwd matches documented wrk directory for any relative outputs
           set +e
           docker run --rm --network host \
-            -v "${GITHUB_WORKSPACE}/dast-reports:/zap/wrk/:rw" \
+            -w /zap/wrk \
+            -v "${GITHUB_WORKSPACE}/dast-reports:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
               -t http://127.0.0.1:8080/ \
@@ -66,9 +72,15 @@ jobs:
           ZAP_EXIT=$?
           set -e
           echo "ZAP baseline exit code: ${ZAP_EXIT}"
+          echo "Contents of dast-reports after scan:"
+          ls -la dast-reports || true
           # 0–2 = scan finished (pass / warn / rule failures). 3 = ZAP/tool error — fail here.
           if [ "${ZAP_EXIT}" -eq 3 ]; then
             echo "ZAP baseline failed with a fatal error (check target URL and logs)."
+            exit 1
+          fi
+          if [ ! -f dast-reports/report.html ] || [ ! -f dast-reports/report.json ]; then
+            echo "Expected ZAP reports missing on host bind mount (check permissions, mount, and ZAP logs above)."
             exit 1
           fi
           {
@@ -84,7 +96,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dast-zap-reports
-          path: dast-reports/
+          path: ${{ github.workspace }}/dast-reports/
           if-no-files-found: warn
 
       - name: Stop app container
