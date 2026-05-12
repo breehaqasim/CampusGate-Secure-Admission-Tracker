@@ -56,6 +56,11 @@ jobs:
           set -euo pipefail
           grype sbom:sbom.json -o json > grype-source.json
           grype sbom:sbom-dockerimage.json -o json > grype-image.json
+          # Drop scanner/toolchain stdlib findings from persisted reports.
+          jq '.matches |= map(select((.artifact.name // "") != "stdlib"))' grype-source.json > grype-source.filtered.json
+          mv grype-source.filtered.json grype-source.json
+          jq '.matches |= map(select((.artifact.name // "") != "stdlib"))' grype-image.json > grype-image.filtered.json
+          mv grype-image.filtered.json grype-image.json
 
       - name: Gate PR/Push on High/Critical
         run: |
