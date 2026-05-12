@@ -39,8 +39,9 @@ RUN npm run build
 FROM nginx:1.28.3-alpine
 # libtiff is pulled in by nginx-module-image-filter; static SPA hosting does not need either.
 # Removing both clears SCA hits (e.g. CVE-2023-52356) without affecting nginx for static files.
+# curl/libcurl in this base are < 8.19.0 (CVE-2026-3805); not needed at runtime — remove instead of SMB-only upgrade path.
 RUN apk upgrade --no-cache \
-    && apk del --no-cache nginx-module-image-filter tiff
+    && apk del --no-cache nginx-module-image-filter tiff curl
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
