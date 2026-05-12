@@ -35,7 +35,8 @@ ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 RUN npm run build
 
-FROM nginx:1.28-alpine3.21
+# >= 1.28.3 fixes CVE-2026-27651 (ngx_mail_auth_http_module); avoid older 1.28.0 Alpine pins.
+FROM nginx:1.28.3-alpine
 # libtiff is pulled in by nginx-module-image-filter; static SPA hosting does not need either.
 # Removing both clears SCA hits (e.g. CVE-2023-52356) without affecting nginx for static files.
 RUN apk upgrade --no-cache \
