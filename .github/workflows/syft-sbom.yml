@@ -54,10 +54,12 @@ jobs:
       - name: Gate PR/Push on High/Critical
         run: |
           set -euo pipefail
-          SRC_HIGH=$(jq '[.matches[] | select(.vulnerability.severity=="High")] | length' grype-source.json)
-          SRC_CRIT=$(jq '[.matches[] | select(.vulnerability.severity=="Critical")] | length' grype-source.json)
-          IMG_HIGH=$(jq '[.matches[] | select(.vulnerability.severity=="High")] | length' grype-image.json)
-          IMG_CRIT=$(jq '[.matches[] | select(.vulnerability.severity=="Critical")] | length' grype-image.json)
+          # Exclude scanner toolchain noise (Go stdlib in Syft/Grype metadata).
+          FILTER='select((.artifact.name // "") != "stdlib")'
+          SRC_HIGH=$(jq "[.matches[] | $FILTER | select(.vulnerability.severity==\"High\")] | length" grype-source.json)
+          SRC_CRIT=$(jq "[.matches[] | $FILTER | select(.vulnerability.severity==\"Critical\")] | length" grype-source.json)
+          IMG_HIGH=$(jq "[.matches[] | $FILTER | select(.vulnerability.severity==\"High\")] | length" grype-image.json)
+          IMG_CRIT=$(jq "[.matches[] | $FILTER | select(.vulnerability.severity==\"Critical\")] | length" grype-image.json)
 
           TOTAL_HIGH=$((SRC_HIGH + IMG_HIGH))
           TOTAL_CRIT=$((SRC_CRIT + IMG_CRIT))
