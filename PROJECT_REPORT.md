@@ -89,32 +89,52 @@
 
 | Entry point | Type | Notes |
 |-------------|------|--------|
-| HTTPS port 443 | Network | [Public exposure] |
-| Login / signup | Auth | [Brute force, enumeration] |
-| Authenticated API / RPC | AuthZ | [IDOR, RBAC bypass] |
-| File upload (if any) | Input | [Malware, path traversal] |
-| Search / forms | Injection / XSS | [Parameterised queries, encoding] |
+| **Public web (nginx → static SPA)** | Network / HTTP | **Port 80** in Docker; production would typically sit behind **TLS** (443). Delivers **HTML/JS/CSS** and cached assets; primary exposure is **browser-side execution** and **HTTP security headers** (see DAST F-15–F-24, §6). |
+| **Supabase Auth (`auth/v1/*`)** | Authentication | **Sign-up, sign-in, password reset, OTP, JWT refresh** — invoked from the SPA with the **anon key**; risks include **weak passwords (F-25)**, **online guessing / stuffing (F-26)**, and **token/session mishandling (F-28)**. |
+| **Student vs university admin entry** | Authorisation | **Separate login/registration paths**; surface for **wrong-portal access** and **vertical escalation** if session is created before role checks (**F-27**). |
+| **Supabase data API (PostgREST / client queries)** | Authorisation / data | **`profiles`**, **`universities`**, **`university_programs`** — CRUD and reads from the SPA. Enforced with **RLS** and **`profiles.role` / `approved`**; residual risk is **misconfigured policies** or **client-side assumptions** bypassed by direct API use. |
+| **Search, filters, and programme forms** | Input / integrity | **Client-side** validation and React forms; server-side policy via **RLS** and typed columns — not a classic SQLi surface from the app tier, but **XSS** and **logic abuse** still matter (CSP mitigations §6 / nginx). |
+| **CI-built container image** | Supply chain | **Node build + nginx:alpine** runtime; **Syft/Grype** flagged **stdlib / libtiff** class issues in SBOMs (**F-08–F-14**). **No server-side file upload** in this product scope. |
 
 ### 3.3 Threat model methodology
 
-We used **STRIDE** (Spoofing, Tampering, Repudiation, Information disclosure, Denial of service, Elevation of privilege) [and optionally **DREAD** or **risk matrix** with CVSS for prioritisation].
+The CampusGate threat model was developed using the **STRIDE** methodology to identify threats across authentication, session management, API communication, and database interactions. The analysis focused on the Supabase PostgreSQL backend, authentication module, approval workflows, and university management operations identified in the DFD.
+
+Threats identified in the Microsoft Threat Modeling report primarily included:
+
+* Unauthorized access to Supabase PostgreSQL instances,
+* Weak TLS/database communication configuration,
+* Persistent access through compromised credentials,
+* Tampering with transmitted data,
+* Privilege escalation risks within approval and management workflows.
+
+Risk prioritisation was performed using a qualitative risk matrix combined with **CVSS v3.1** severity estimation for manual testing, DAST, and SAST findings.
+
+---
 
 #### 3.3.1 STRIDE per major component
 
 | Component | S | T | R | I | D | E | Mitigation summary |
 |-----------|---|---|---|---|---|---|---------------------|
-| Browser session | … | … | … | … | … | … | [Cookies HttpOnly; SameSite; CSP] |
-| API / edge | … | … | … | … | … | … | [TLS; auth middleware] |
-| Database | … | … | … | … | … | … | [RLS / least privilege; backups] |
+| Browser session | Session hijacking through stolen tokens | Cookie/session tampering | Users denying performed actions | Exposure of session tokens or profile data | Session flooding / brute force login attempts | Privilege escalation through weak RBAC checks | Secure JWT sessions, HTTPS, CSP, logout invalidation, role-based route protection |
+| API / edge | Spoofed requests using stolen credentials | Parameter manipulation and request tampering | Missing request traceability | Exposure of sensitive API responses | Excessive requests causing service degradation | Broken access control / IDOR attacks | TLS enforcement, input validation, RBAC middleware, rate limiting, authenticated API checks |
+| Database (Supabase PostgreSQL) | Unauthorized DB access | Data modification in transit | Lack of audit visibility | Leakage of user/application data | Resource exhaustion attacks | Persistent elevated access through credential compromise | Row Level Security (RLS), least privilege access, TLS-enforced DB communication, credential rotation, secure secret storage |
 
 ### 3.4 Threat prioritisation
 
 | Threat ID | Description | Likelihood | Impact | Risk score | Linked test (SAST/DAST/manual) |
 |-----------|-------------|------------|--------|------------|--------------------------------|
-| TM-01 | [e.g. IDOR on application ID] | Med | High | High | DAST + manual §6 |
-| TM-02 | [e.g. Weak session after logout] | Low | Med | Med | Manual §6 |
+| TM-01 | Unauthorized access to Supabase PostgreSQL due to weak network security configuration | Medium | High | High | Threat model + manual testing |
+| TM-02 | Data tampering or interception during PostgreSQL communication due to weak TLS configuration | Medium | High | High | DAST + manual |
+| TM-03 | Persistent access through compromised database credentials or leaked secrets | Medium | High | High | SAST + manual |
+| TM-04 | Broken RBAC allowing unauthorized university management actions | Medium | High | High | Manual pentesting |
+| TM-05 | IDOR through manipulated UUID/profile identifiers | Medium | High | High | DAST + manual |
+| TM-06 | Session token reuse after logout or weak session invalidation | Low | Medium | Medium | Manual testing |
+| TM-07 | XSS through unsanitized form inputs or search parameters | Medium | Medium | Medium | DAST + manual |
+| TM-08 | Brute force attacks against authentication endpoints | Medium | Medium | Medium | DAST |
+| TM-09 | Exposure of sensitive configuration or public API endpoints | Low | Medium | Medium | SAST + DAST |
 
-### 3.5 Threat model updates post-remediation
+### 3.5 Threat model updates post-remediation LEFT FOR NAMEL
 
 [Paragraph: what changed after fixes — e.g. reduced exposure from headers, removed packages from image, tightened RBAC. Attach updated diagram if trust boundaries moved.]
 
