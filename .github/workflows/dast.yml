@@ -87,9 +87,34 @@ jobs:
             echo ""
             echo "## DAST — ZAP (step 3)"
             echo ""
-            echo "- ZAP baseline exit code: \`${ZAP_EXIT}\` (0=pass, 1=warnings, 2=fail per ZAP rules — quality gate comes in step 4)"
+            echo "- ZAP baseline exit code: \`${ZAP_EXIT}\` (see step 4 for High/Critical gate)"
             echo "- Reports: \`dast-reports/report.html\`, \`dast-reports/report.json\`"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: DAST quality gate (fail on High / Critical)
+        run: |
+          set -euo pipefail
+          REPORT="${GITHUB_WORKSPACE}/dast-reports/report.json"
+          test -f "${REPORT}"
+          # ZAP traditional-json: site[].alerts[] with string field "risk"
+          HIGH=$(jq '[.site[]?.alerts[]? | select((.risk // "") | ascii_downcase == "high")] | length' "${REPORT}")
+          CRITICAL=$(jq '[.site[]?.alerts[]? | select((.risk // "") | ascii_downcase == "critical")] | length' "${REPORT}")
+          TOTAL=$((HIGH + CRITICAL))
+          echo "DAST High: ${HIGH}"
+          echo "DAST Critical: ${CRITICAL}"
+          {
+            echo ""
+            echo "## DAST quality gate (step 4)"
+            echo ""
+            echo "- High: **${HIGH}**"
+            echo "- Critical: **${CRITICAL}**"
+            echo "- Combined High+Critical: **${TOTAL}**"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          if [ "${TOTAL}" -gt 0 ]; then
+            echo "DAST gate failed: ${TOTAL} High/Critical alert(s). See report.html in artifact dast-zap-reports."
+            exit 1
+          fi
+          echo "DAST gate passed: no High or Critical alerts."
 
       - name: Upload DAST reports (ZAP)
         if: always()
