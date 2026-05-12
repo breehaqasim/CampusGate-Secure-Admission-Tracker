@@ -15,6 +15,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: DAST workflow placeholder
+      - name: Build Docker image (same pattern as SCA)
         run: |
-          echo "Step 1 OK: dast job is wired. Next step will build/run Docker and add ZAP."
+          set -euo pipefail
+          docker build \
+            --build-arg VITE_SUPABASE_URL=https://placeholder.supabase.co \
+            --build-arg VITE_SUPABASE_ANON_KEY=placeholder-for-ci-dast-only \
+            -t campusgate:dast .
+
+      - name: Run app container (nginx on host port 8080)
+        run: |
+          set -euo pipefail
+          docker run -d --name campusgate-dast -p 8080:80 campusgate:dast
+
+      - name: Wait until app is reachable
+        run: |
+          set -euo pipefail
+          TARGET="http://127.0.0.1:8080/"
+          echo "Waiting for ${TARGET} ..."
+          for i in $(seq 1 60); do
+            if curl -sf --max-time 3 "${TARGET}" >/dev/null; then
+              echo "App is reachable after ${i} attempt(s)."
+              {
+                echo "## DAST prep (step 2)"
+                echo ""
+                echo "- Target: \`${TARGET}\`"
+                echo "- Container: \`campusgate-dast\`"
+              } >> "${GITHUB_STEP_SUMMARY}"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timeout: app did not become reachable in time."
+          docker logs campusgate-dast || true
+          exit 1
+
+      - name: Stop app container
+        if: always()
+        run: |
+          docker stop campusgate-dast 2>/dev/null || true
