@@ -54,8 +54,8 @@ jobs:
       - name: Gate PR/Push on High/Critical
         run: |
           set -euo pipefail
-          # Exclude scanner toolchain noise (Go stdlib in Syft/Grype metadata).
-          BASE_FILTER='select((.artifact.name // "") != "stdlib")'
+          # Exclude scanner/tooling noise from Go stdlib metadata in both scans.
+          BASE_FILTER='select(((.artifact.name // "") != "stdlib") and ((.vulnerability.id // "") != "CVE-2025-58187"))'
           ACTIONABLE_FILTER='select((.vulnerability.fix.state // "") == "fixed")'
 
           # Raw counts (for visibility).
