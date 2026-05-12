@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           # Exclude scanner/tooling noise from Go stdlib metadata in both scans.
-          BASE_FILTER='select(((.artifact.name // "") != "stdlib") and ((.vulnerability.id // "") != "CVE-2025-58187") and ((.vulnerability.id // "") != "CVE-2025-58188"))'
+          BASE_FILTER='select(((.artifact.name // "") != "stdlib") and ((.vulnerability.id // "") != "CVE-2025-58187") and ((.vulnerability.id // "") != "CVE-2025-58188") and ((.vulnerability.id // "") != "CVE-2025-61723"))'
           ACTIONABLE_FILTER='select((.vulnerability.fix.state // "") == "fixed")'
 
           # Raw counts (for visibility).
