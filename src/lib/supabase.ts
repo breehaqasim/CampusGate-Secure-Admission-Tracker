@@ -8,10 +8,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Magic-link emails redirect here with tokens in the URL hash; implicit flow + detectSessionInUrl picks them up.
+// persistSession: false — session lives in memory only so a full page refresh ends the session (course / security requirement).
+// Trade-off: closing the tab or refreshing always requires sign-in again; no cross-tab shared session via localStorage.
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     detectSessionInUrl: true,
-    persistSession: true,
+    persistSession: false,
     autoRefreshToken: true,
   },
 });
