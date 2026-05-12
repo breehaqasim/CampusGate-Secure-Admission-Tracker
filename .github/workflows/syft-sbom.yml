@@ -1,31 +1,36 @@
-name: SCA — Syft SBOMs
+name: SCA — SBOM + Vulnerability Gate
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "0 2 * * *" # nightly scan (UTC)
 
 permissions:
   contents: read
 
 env:
   SYFT_VERSION: v1.24.0
+  GRYPE_VERSION: v0.81.0
 
 jobs:
-  syft-sbom:
+  sca:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Syft
+      - name: Install Syft + Grype
         run: |
           set -euo pipefail
           curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin" "${SYFT_VERSION}"
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "$HOME/.local/bin" "${GRYPE_VERSION}"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           syft version
+          grype version
 
-      - name: SBOM — folder (CycloneDX JSON)
+      - name: SBOM — source (CycloneDX JSON)
         run: |
           set -euo pipefail
           syft dir:. -o cyclonedx-json > sbom.json
@@ -38,14 +43,54 @@ jobs:
             --build-arg VITE_SUPABASE_ANON_KEY=placeholder-for-ci-sbom-only \
             -t campusgate:ci .
 
-      - name: SBOM — Docker image (CycloneDX JSON)
+      - name: SBOM — image (CycloneDX JSON)
         run: |
           set -euo pipefail
           syft docker:campusgate:ci -o cyclonedx-json > sbom-dockerimage.json
 
-      - uses: actions/upload-artifact@v4
+      - name: Scan vulnerabilities (JSON reports)
+        run: |
+          set -euo pipefail
+          grype sbom:sbom.json -o json > grype-source.json
+          grype sbom:sbom-dockerimage.json -o json > grype-image.json
+
+      - name: Gate PR/Push on High/Critical
+        run: |
+          set -euo pipefail
+          SRC_HIGH=$(jq '[.matches[] | select(.vulnerability.severity=="High")] | length' grype-source.json)
+          SRC_CRIT=$(jq '[.matches[] | select(.vulnerability.severity=="Critical")] | length' grype-source.json)
+          IMG_HIGH=$(jq '[.matches[] | select(.vulnerability.severity=="High")] | length' grype-image.json)
+          IMG_CRIT=$(jq '[.matches[] | select(.vulnerability.severity=="Critical")] | length' grype-image.json)
+
+          TOTAL_HIGH=$((SRC_HIGH + IMG_HIGH))
+          TOTAL_CRIT=$((SRC_CRIT + IMG_CRIT))
+
+          echo "High: ${TOTAL_HIGH}"
+          echo "Critical: ${TOTAL_CRIT}"
+
+          {
+            echo "## SCA Summary"
+            echo ""
+            echo "- Source High: ${SRC_HIGH}"
+            echo "- Source Critical: ${SRC_CRIT}"
+            echo "- Image High: ${IMG_HIGH}"
+            echo "- Image Critical: ${IMG_CRIT}"
+            echo "- Total High: ${TOTAL_HIGH}"
+            echo "- Total Critical: ${TOTAL_CRIT}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${TOTAL_HIGH}" -gt 0 ] || [ "${TOTAL_CRIT}" -gt 0 ]; then
+            echo "SCA gate failed: High/Critical vulnerabilities found."
+            exit 1
+          fi
+
+      - name: Upload SCA artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: dependency-track-sboms
+          name: sca-reports
           path: |
             sbom.json
             sbom-dockerimage.json
+            grype-source.json
+            grype-image.json
