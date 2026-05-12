@@ -11,3 +11,5 @@ add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; form-ac
 add_header Cross-Origin-Resource-Policy "same-origin" always;
 add_header Cross-Origin-Embedder-Policy "credentialless" always;
 add_header Cross-Origin-Opener-Policy "same-origin" always;
+# ZAP 10063 / passive scan: declare feature policy; tighten or relax origins as product needs (e.g. WebAuthn).
+add_header Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), fullscreen=(self), publickey-credentials-get=(self)" always;
