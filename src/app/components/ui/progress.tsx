@@ -21,9 +21,24 @@ function Progress({
     >
       <ProgressPrimitive.Indicator
         data-slot="progress-indicator"
-        className="bg-primary h-full w-full flex-1 transition-all"
-        style={{ transform: `translateX(-${100 - (value || 0)}%)` }}
-      />
+        className="block h-full w-full overflow-hidden rounded-full transition-all"
+      >
+        <svg
+          className="h-full w-full"
+          viewBox="0 0 100 4"
+          preserveAspectRatio="none"
+          aria-hidden
+        >
+          <rect
+            x="0"
+            y="0"
+            height="4"
+            rx="2"
+            width={Math.min(100, Math.max(0, value ?? 0))}
+            className="fill-primary"
+          />
+        </svg>
+      </ProgressPrimitive.Indicator>
     </ProgressPrimitive.Root>
   );
 }

@@ -1,5 +1,7 @@
-# CampusGate: Vite/React bundle, MUI (inline styles), Google Fonts, Supabase API + Realtime.
+# CampusGate: Vite/React + Tailwind (bundled CSS), Google Fonts, Supabase.
 # If you enable OAuth (e.g. Google) via Supabase, add to connect-src / frame-src: https://accounts.google.com https://*.googleusercontent.com
 # img-src / media-src avoid bare "https:" (ZAP 10055 CSP Wildcard Directive); list explicit hosts only.
+# style-src-elem: bundled CSS + fonts + blob: (ChartStyle uses blob: stylesheets, not inline <style>).
+# style-src-attr: 'unsafe-inline' for React style={{}} (e.g. Progress, Chart legend colors). Tighten later with nonces if needed.
 # If you load images/media from other HTTPS origins (e.g. university CDN URLs), add them here.
-add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src 'self' https://*.supabase.co; object-src 'none'; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob: https://*.supabase.co; upgrade-insecure-requests" always;
+add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; script-src 'self'; style-src-elem 'self' https://fonts.googleapis.com blob:; style-src-attr 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src 'self' https://*.supabase.co; object-src 'none'; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob: https://*.supabase.co; upgrade-insecure-requests" always;

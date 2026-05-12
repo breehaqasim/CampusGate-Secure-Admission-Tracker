@@ -70,20 +70,16 @@ function ChartContainer({
 }
 
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
-  const colorConfig = Object.entries(config).filter(
-    ([, config]) => config.theme || config.color,
-  );
-
-  if (!colorConfig.length) {
-    return null;
-  }
-
-  return (
-    <style
-      dangerouslySetInnerHTML={{
-        __html: Object.entries(THEMES)
-          .map(
-            ([theme, prefix]) => `
+  const cssText = React.useMemo(() => {
+    const colorConfig = Object.entries(config).filter(
+      ([, cfg]) => cfg.theme || cfg.color,
+    );
+    if (!colorConfig.length) {
+      return "";
+    }
+    return Object.entries(THEMES)
+      .map(
+        ([theme, prefix]) => `
 ${prefix} [data-chart=${id}] {
 ${colorConfig
   .map(([key, itemConfig]) => {
@@ -92,17 +88,93 @@ ${colorConfig
       itemConfig.color;
     return color ? `  --color-${key}: ${color};` : null;
   })
+  .filter(Boolean)
   .join("\n")}
 }
 `,
-          )
-          .join("\n"),
-      }}
-    />
-  );
+      )
+      .join("\n");
+  }, [id, config]);
+
+  const blobHref = React.useMemo(() => {
+    if (!cssText.trim()) {
+      return null;
+    }
+    return URL.createObjectURL(new Blob([cssText], { type: "text/css" }));
+  }, [cssText]);
+
+  React.useEffect(() => {
+    return () => {
+      if (blobHref) {
+        URL.revokeObjectURL(blobHref);
+      }
+    };
+  }, [blobHref]);
+
+  if (!blobHref) {
+    return null;
+  }
+
+  return <link rel="stylesheet" href={blobHref} key={blobHref} />;
 };
 
 const ChartTooltip = RechartsPrimitive.Tooltip;
+
+/** SVG-only swatch so tooltip indicators do not rely on HTML style attributes (CSP style-src-attr). */
+function ChartTooltipIndicatorSwatch({
+  color,
+  indicator,
+  nestLabel,
+}: {
+  color: string;
+  indicator: "line" | "dot" | "dashed";
+  nestLabel: boolean;
+}) {
+  if (indicator === "line") {
+    return (
+      <svg
+        width={4}
+        height={10}
+        className="shrink-0 text-muted-foreground"
+        aria-hidden
+      >
+        <line
+          x1="2"
+          y1="0"
+          x2="2"
+          y2="10"
+          stroke={color}
+          strokeWidth={2}
+        />
+      </svg>
+    );
+  }
+  if (indicator === "dashed") {
+    return (
+      <svg
+        width={4}
+        height={10}
+        className={cn("shrink-0 text-muted-foreground", nestLabel && "my-0.5")}
+        aria-hidden
+      >
+        <line
+          x1="2"
+          y1="0"
+          x2="2"
+          y2="10"
+          stroke={color}
+          strokeWidth={1.5}
+          strokeDasharray="3 2"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg width={10} height={10} className="shrink-0 text-muted-foreground" aria-hidden>
+      <rect width="10" height="10" rx="2" fill={color} />
+    </svg>
+  );
+}
 
 function ChartTooltipContent({
   active,
@@ -200,23 +272,10 @@ function ChartTooltipContent({
                     <itemConfig.icon />
                   ) : (
                     !hideIndicator && (
-                      <div
-                        className={cn(
-                          "shrink-0 rounded-[2px] border-(--color-border) bg-(--color-bg)",
-                          {
-                            "h-2.5 w-2.5": indicator === "dot",
-                            "w-1": indicator === "line",
-                            "w-0 border-[1.5px] border-dashed bg-transparent":
-                              indicator === "dashed",
-                            "my-0.5": nestLabel && indicator === "dashed",
-                          },
-                        )}
-                        style={
-                          {
-                            "--color-bg": indicatorColor,
-                            "--color-border": indicatorColor,
-                          } as React.CSSProperties
-                        }
+                      <ChartTooltipIndicatorSwatch
+                        color={String(indicatorColor ?? "currentColor")}
+                        indicator={indicator}
+                        nestLabel={nestLabel}
                       />
                     )
                   )}
@@ -289,12 +348,19 @@ function ChartLegendContent({
             {itemConfig?.icon && !hideIcon ? (
               <itemConfig.icon />
             ) : (
-              <div
-                className="h-2 w-2 shrink-0 rounded-[2px]"
-                style={{
-                  backgroundColor: item.color,
-                }}
-              />
+              <svg
+                width={8}
+                height={8}
+                className="h-2 w-2 shrink-0"
+                aria-hidden
+              >
+                <rect
+                  width="8"
+                  height="8"
+                  rx="2"
+                  fill={item.color ?? "currentColor"}
+                />
+              </svg>
             )}
             {itemConfig?.label}
           </div>

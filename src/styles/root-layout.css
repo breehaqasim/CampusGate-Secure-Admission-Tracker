@@ -1,0 +1,10 @@
+/* Root layout (was inline in index.html) — keeps style-src-elem free of 'unsafe-inline'. */
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+#root {
+  height: 100%;
+}
