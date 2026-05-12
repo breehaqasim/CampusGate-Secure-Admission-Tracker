@@ -1,0 +1,20 @@
+name: DAST — OWASP ZAP
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: DAST workflow placeholder
+        run: |
+          echo "Step 1 OK: dast job is wired. Next step will build/run Docker and add ZAP."
