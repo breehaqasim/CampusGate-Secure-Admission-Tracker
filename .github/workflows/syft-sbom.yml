@@ -31,6 +31,9 @@ jobs:
         run: |
           set -euo pipefail
           syft dir:. -o cyclonedx-json > sbom.json
+          # Remove scanner self-metadata so source scan reflects project components only.
+          jq 'del(.metadata.tools)' sbom.json > sbom.source.cleaned.json
+          mv sbom.source.cleaned.json sbom.json
 
       - name: Docker build
         run: |
@@ -44,6 +47,9 @@ jobs:
         run: |
           set -euo pipefail
           syft docker:campusgate:ci -o cyclonedx-json > sbom-dockerimage.json
+          # Remove scanner self-metadata so image scan reflects image components only.
+          jq 'del(.metadata.tools)' sbom-dockerimage.json > sbom.image.cleaned.json
+          mv sbom.image.cleaned.json sbom-dockerimage.json
 
       - name: Scan vulnerabilities (JSON reports)
         run: |
@@ -55,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           # Exclude scanner/tooling noise from Go stdlib metadata in both scans.
-          BASE_FILTER='select(((.artifact.name // "") != "stdlib") and ((.vulnerability.id // "") != "CVE-2025-58187") and ((.vulnerability.id // "") != "CVE-2025-58188") and ((.vulnerability.id // "") != "CVE-2025-61723"))'
+          BASE_FILTER='select((.artifact.name // "") != "stdlib")'
           ACTIONABLE_FILTER='select((.vulnerability.fix.state // "") == "fixed")'
 
           # Raw counts (for visibility).
