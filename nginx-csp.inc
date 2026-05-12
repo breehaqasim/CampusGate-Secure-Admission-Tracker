@@ -5,6 +5,9 @@
 # style-src-attr: 'unsafe-inline' for React style={{}} (e.g. Progress, Chart legend colors). Tighten later with nonces if needed.
 # If you load images/media from other HTTPS origins (e.g. university CDN URLs), add them here.
 add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; script-src 'self'; style-src-elem 'self' https://fonts.googleapis.com blob:; style-src-attr 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src 'self' https://*.supabase.co; object-src 'none'; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob: https://*.supabase.co; upgrade-insecure-requests" always;
-# COEP: explicit policy clears DAST “header missing” (ZAP 90004). unsafe-none keeps default embedding rules so Supabase/fonts work.
-# require-corp needs CORP on every cross-origin resource — avoid unless you are isolating for SharedArrayBuffer etc.
-add_header Cross-Origin-Embedder-Policy "unsafe-none" always;
+# Site isolation (ZAP passive 90004 / Spectre-related headers):
+# - COEP credentialless is accepted by ZAP (unsafe-none is treated as invalid). Lighter than require-corp for SPAs that load cross-origin CORS resources (e.g. Supabase, fonts).
+# - CORP + COOP satisfy the same rule’s CORP/COOP checks on HTML/XML documents without relying on baseline ignores.
+add_header Cross-Origin-Resource-Policy "same-origin" always;
+add_header Cross-Origin-Embedder-Policy "credentialless" always;
+add_header Cross-Origin-Opener-Policy "same-origin" always;
