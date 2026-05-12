@@ -36,8 +36,10 @@ ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 RUN npm run build
 
 FROM nginx:1.28-alpine3.21
+# Static nginx does not need libtiff; drop it to clear CVEs (e.g. CVE-2023-52356).
+# Avoid `apk del --no-network` — it can leave tiff installed.
 RUN apk upgrade --no-cache \
-    && if apk info -e tiff >/dev/null 2>&1; then apk del --no-network tiff; fi
+    && if apk info -e tiff >/dev/null 2>&1; then apk del --no-cache tiff; fi
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
