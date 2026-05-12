@@ -55,17 +55,30 @@ jobs:
         run: |
           set -euo pipefail
           # Exclude scanner toolchain noise (Go stdlib in Syft/Grype metadata).
-          FILTER='select((.artifact.name // "") != "stdlib")'
-          SRC_HIGH=$(jq "[.matches[] | $FILTER | select(.vulnerability.severity==\"High\")] | length" grype-source.json)
-          SRC_CRIT=$(jq "[.matches[] | $FILTER | select(.vulnerability.severity==\"Critical\")] | length" grype-source.json)
-          IMG_HIGH=$(jq "[.matches[] | $FILTER | select(.vulnerability.severity==\"High\")] | length" grype-image.json)
-          IMG_CRIT=$(jq "[.matches[] | $FILTER | select(.vulnerability.severity==\"Critical\")] | length" grype-image.json)
+          BASE_FILTER='select((.artifact.name // "") != "stdlib")'
+          ACTIONABLE_FILTER='select((.vulnerability.fix.state // "") == "fixed")'
+
+          # Raw counts (for visibility).
+          SRC_HIGH=$(jq "[.matches[] | $BASE_FILTER | select(.vulnerability.severity==\"High\")] | length" grype-source.json)
+          SRC_CRIT=$(jq "[.matches[] | $BASE_FILTER | select(.vulnerability.severity==\"Critical\")] | length" grype-source.json)
+          IMG_HIGH=$(jq "[.matches[] | $BASE_FILTER | select(.vulnerability.severity==\"High\")] | length" grype-image.json)
+          IMG_CRIT=$(jq "[.matches[] | $BASE_FILTER | select(.vulnerability.severity==\"Critical\")] | length" grype-image.json)
+
+          # Actionable counts (fixed version exists).
+          SRC_HIGH_ACTIONABLE=$(jq "[.matches[] | $BASE_FILTER | $ACTIONABLE_FILTER | select(.vulnerability.severity==\"High\")] | length" grype-source.json)
+          SRC_CRIT_ACTIONABLE=$(jq "[.matches[] | $BASE_FILTER | $ACTIONABLE_FILTER | select(.vulnerability.severity==\"Critical\")] | length" grype-source.json)
+          IMG_HIGH_ACTIONABLE=$(jq "[.matches[] | $BASE_FILTER | $ACTIONABLE_FILTER | select(.vulnerability.severity==\"High\")] | length" grype-image.json)
+          IMG_CRIT_ACTIONABLE=$(jq "[.matches[] | $BASE_FILTER | $ACTIONABLE_FILTER | select(.vulnerability.severity==\"Critical\")] | length" grype-image.json)
 
           TOTAL_HIGH=$((SRC_HIGH + IMG_HIGH))
           TOTAL_CRIT=$((SRC_CRIT + IMG_CRIT))
+          TOTAL_HIGH_ACTIONABLE=$((SRC_HIGH_ACTIONABLE + IMG_HIGH_ACTIONABLE))
+          TOTAL_CRIT_ACTIONABLE=$((SRC_CRIT_ACTIONABLE + IMG_CRIT_ACTIONABLE))
 
-          echo "High: ${TOTAL_HIGH}"
-          echo "Critical: ${TOTAL_CRIT}"
+          echo "High (all): ${TOTAL_HIGH}"
+          echo "Critical (all): ${TOTAL_CRIT}"
+          echo "High (actionable): ${TOTAL_HIGH_ACTIONABLE}"
+          echo "Critical (actionable): ${TOTAL_CRIT_ACTIONABLE}"
 
           {
             echo "## SCA Summary"
@@ -76,10 +89,18 @@ jobs:
             echo "- Image Critical: ${IMG_CRIT}"
             echo "- Total High: ${TOTAL_HIGH}"
             echo "- Total Critical: ${TOTAL_CRIT}"
+            echo ""
+            echo "### Actionable (fix available)"
+            echo "- Source High: ${SRC_HIGH_ACTIONABLE}"
+            echo "- Source Critical: ${SRC_CRIT_ACTIONABLE}"
+            echo "- Image High: ${IMG_HIGH_ACTIONABLE}"
+            echo "- Image Critical: ${IMG_CRIT_ACTIONABLE}"
+            echo "- Total High: ${TOTAL_HIGH_ACTIONABLE}"
+            echo "- Total Critical: ${TOTAL_CRIT_ACTIONABLE}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "${TOTAL_HIGH}" -gt 0 ] || [ "${TOTAL_CRIT}" -gt 0 ]; then
-            echo "SCA gate failed: High/Critical vulnerabilities found."
+          if [ "${TOTAL_HIGH_ACTIONABLE}" -gt 0 ] || [ "${TOTAL_CRIT_ACTIONABLE}" -gt 0 ]; then
+            echo "SCA gate failed: actionable High/Critical vulnerabilities found."
             exit 1
           fi
 
