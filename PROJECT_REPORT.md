@@ -65,7 +65,7 @@
 | **Auth & session** | Supabase Auth; `authService` logout; inactivity timeout in `App.tsx` |
 | **RBAC** | `profiles.role`, `approved` (university admin); enforce with Supabase RLS |
 | **Containerisation** | Docker (multi-stage: Node 20.19.2-alpine3.21 build, nginx 1.28.3-alpine runtime), `nginx.conf`, `nginx-csp.inc` |
-| **CI/CD** | GitHub Actions (SonarCloud, Syft/Grype, ZAP — see §4) |
+| **CI/CD** | GitHub Actions (SonarCloud, Grype, ZAP — see §4) |
 
 ### 2.3 User roles
 
@@ -94,7 +94,7 @@
 | **Student vs university admin entry** | Authorisation | **Separate login/registration paths**; surface for **wrong-portal access** and **vertical escalation** if session is created before role checks (**F-27**). |
 | **Supabase data API (PostgREST / client queries)** | Authorisation / data | **`profiles`**, **`universities`**, **`university_programs`** — CRUD and reads from the SPA. Enforced with **RLS** and **`profiles.role` / `approved`**; residual risk is **misconfigured policies** or **client-side assumptions** bypassed by direct API use. |
 | **Search, filters, and programme forms** | Input / integrity | **Client-side** validation and React forms; server-side policy via **RLS** and typed columns — not a classic SQLi surface from the app tier, but **XSS** and **logic abuse** still matter (CSP mitigations §6 / nginx). |
-| **CI-built container image** | Supply chain | **Node build + nginx:alpine** runtime; **Syft/Grype** flagged **stdlib / libtiff** class issues in SBOMs (**F-08–F-14**). **No server-side file upload** in this product scope. |
+| **CI-built container image** | Supply chain | **Node build + nginx:alpine** runtime; **Grype** flagged **stdlib / libtiff** class issues in SBOMs (**F-08–F-14**). **No server-side file upload** in this product scope. |
 
 ### 3.3 Threat model methodology
 
