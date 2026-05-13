@@ -1006,15 +1006,4 @@ Store large JSON/HTML reports in repo `appendix/` or attach as ZIP per course in
 |-------|--------|-------------------------|
 | #12 | [Title] | `fix #12: …` |
 
----
-
-## Document control
-
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 0.1 | [date] | [names] | Initial draft |
-| 1.0 | [date] | [names] | Final for submission |
-
----
-
 *End of report template — replace all bracketed placeholders with your project-specific content before submission.*
